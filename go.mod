@@ -1,6 +1,6 @@
 module github.com/go-gui-org/go-speedtest
 
-go 1.27.1
+go 1.26.4
 
 require (
 	github.com/go-gui-org/go-charts v0.6.0
