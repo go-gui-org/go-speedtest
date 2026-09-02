@@ -1,0 +1,11 @@
+# Local development workspace; releases build from published tags.
+go.work
+go.work.sum
+
+# Build output
+/go-speedtest
+/dist/
+
+# Screenshots produced by -screenshot
+*.png
+!docs/*.png
