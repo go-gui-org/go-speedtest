@@ -31,8 +31,10 @@ const arcSegments = 48
 // TileSource is the map's tile provider, built once in main and shared
 // with the window so the HTTP fetcher carries the same identifying
 // user agent. OSM's tile policy requires that.
+//
+// The tiles are re-toned on the way in; see darkTiles.
 func TileSource() tile.Source {
-	return tile.OSMWithUserAgent(probe.DefaultUserAgent)
+	return darkTiles{Source: tile.OSMWithUserAgent(probe.DefaultUserAgent)}
 }
 
 // mapPanel is the map card: where the traffic went.
@@ -53,7 +55,12 @@ func mapPanel(s *State) gui.View {
 			// applyTrace frames the two pins.
 			InitialCenter: projection.LatLng{Lat: 20, Lng: 0},
 			InitialZoom:   1,
-			A11YLabel:     "Map of the route to the serving datacenter",
+			// What shows through before a tile arrives. Left at the
+			// default it was a pale flash on every pan; matching the
+			// re-toned tiles means a missing one reads as empty rather
+			// than as a hole.
+			Background: mix(gui.CurrentTheme().ColorPanel, colorDown, 0.05),
+			A11YLabel:  "Map of the route to the serving datacenter",
 		}),
 	}
 	return gui.Column(cfg)
