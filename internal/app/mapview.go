@@ -37,30 +37,26 @@ func TileSource() tile.Source {
 
 // mapPanel is the map card: where the traffic went.
 func mapPanel(s *State) gui.View {
-	theme := gui.CurrentTheme()
-
-	return gui.Column(gui.ContainerCfg{
-		Sizing:  gui.FixedFill,
-		Width:   mapPanelWidth,
-		Color:   theme.ColorPanel,
-		Radius:  gui.SomeF(theme.RadiusSmall),
-		Padding: gui.NewPadding(8, 10, 8, 10),
-		Spacing: gui.SomeF(4),
-		Content: []gui.View{
-			gui.Text(gui.TextCfg{Text: mapTitle(s), TextStyle: theme.TextStyleLabel}),
-			mapview.Map(mapview.Cfg{
-				ID:        mapID,
-				Sizing:    gui.FillFill,
-				Focusable: true,
-				Source:    s.Tiles,
-				// A world view until the trace lands, at which point
-				// applyTrace frames the two pins.
-				InitialCenter: projection.LatLng{Lat: 20, Lng: 0},
-				InitialZoom:   1,
-				A11YLabel:     "Map of the route to the serving datacenter",
-			}),
-		},
-	})
+	cfg := cardChrome()
+	cfg.Sizing = gui.FixedFill
+	cfg.Width = mapPanelWidth
+	cfg.Padding = gui.NewPadding(8, 10, 8, 10)
+	cfg.Spacing = gui.SomeF(4)
+	cfg.Content = []gui.View{
+		panelTitle(mapTitle(s), colorUp),
+		mapview.Map(mapview.Cfg{
+			ID:        mapID,
+			Sizing:    gui.FillFill,
+			Focusable: true,
+			Source:    s.Tiles,
+			// A world view until the trace lands, at which point
+			// applyTrace frames the two pins.
+			InitialCenter: projection.LatLng{Lat: 20, Lng: 0},
+			InitialZoom:   1,
+			A11YLabel:     "Map of the route to the serving datacenter",
+		}),
+	}
+	return gui.Column(cfg)
 }
 
 // mapTitle names what the map is showing, which changes as the run

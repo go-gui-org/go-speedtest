@@ -47,8 +47,8 @@ func livePanel(s *State) gui.View {
 		Spacing:    gui.SomeF(10),
 		SizeBorder: gui.NoBorder,
 		Content: []gui.View{
-			directionPanel("Download", "chart:live:down", down),
-			directionPanel("Upload", "chart:live:up", up),
+			directionPanel("Download", "chart:live:down", down, colorDown),
+			directionPanel("Upload", "chart:live:up", up, colorUp),
 		},
 	})
 }
@@ -66,7 +66,9 @@ func livePanel(s *State) gui.View {
 // caller-supplied axis with the data bounds (autoLinearAxis in
 // chart/xyaxes.go), and only the AutoScroll path marks a domain as
 // overridden. The axis is passed here for its tick format alone.
-func directionPanel(title, id string, data series.XY) gui.View {
+func directionPanel(
+	title, id string, data series.XY, accent gui.Color,
+) gui.View {
 	// An empty direction still draws its chart, not a placeholder.
 	// A placeholder is Fit-height while a chart claims more, so the two
 	// panels split the row unevenly and then jump to half each the
@@ -77,7 +79,7 @@ func directionPanel(title, id string, data series.XY) gui.View {
 		yAxis, window = emptyYAxis(), minLiveSeconds
 	}
 
-	return panel(title+"  ·  Mbps", chart.Area(chart.AreaCfg{
+	return panel(title+"  ·  Mbps", accent, chart.Area(chart.AreaCfg{
 		BaseCfg: chart.BaseCfg{
 			ID:      id,
 			Sizing:  gui.FillFill,
@@ -269,75 +271,76 @@ func gaugePanel(s *State) gui.View {
 	top, div, unit, valueFormat := gaugeRange(s)
 	value /= div
 
-	return gui.Column(gui.ContainerCfg{
-		// Fixed and roughly square: the dial's radius is half the
-		// smaller of the panel's two sides (chart/gauge.go), so any
-		// width past the panel's height is empty ground around the
-		// dial. The latency column takes that width instead.
-		Sizing:  gui.FixedFill,
-		Width:   gaugeWidth,
-		Color:   gui.CurrentTheme().ColorPanel,
-		Radius:  gui.SomeF(gui.CurrentTheme().RadiusSmall),
-		Padding: gui.NewPadding(8, 10, 8, 10),
-		Spacing: gui.SomeF(4),
-		Content: []gui.View{
-			gui.Text(gui.TextCfg{
-				Text:      gaugeTitle(s, unit),
-				TextStyle: gui.CurrentTheme().TextStyleLabel,
-			}),
-			chart.Gauge(chart.GaugeCfg{
-				BaseCfg: chart.BaseCfg{
-					ID:     "chart:gauge",
-					Sizing: gui.FillFill,
-					// A dial has no axes, so the default chart
-					// padding (40/60px, reserved for tick labels)
-					// is dead space that shrinks the radius.
-					Theme: gaugeTheme(),
-					// The zone legend does not fit beside a dial this
-					// narrow, and it says nothing the colored arc does
-					// not already say.
-					LegendPosition: &noLegend,
-					Version:        s.Version,
-				},
-				Value:       value,
-				Min:         0,
-				Max:         top,
-				ShowValue:   true,
-				ShowPointer: true,
-				// The needle carries the direction, blue for download
-				// and green for upload, so a glance at the dial says
-				// which way the bytes are going without reading the
-				// title. The zone colors under it keep saying how fast
-				// the reading is.
-				PointerColor: accent,
-				// Six labelled graduations, a fifth of the range
-				// apart, with a minor mark every quarter of that.
-				// Enough to read the needle without counting, few
-				// enough that the numbers do not run into each other on
-				// a dial this size.
-				TickCount:      5,
-				MinorTicks:     3,
-				ShowTickLabels: true,
-				ValueFormat:    valueFormat,
-				// The default holds back 15% of the radius for the
-				// graduation labels. The theme padding above already
-				// reserves that room, so leaving the default in place
-				// would pay the same allowance twice and shrink the
-				// dial for nothing.
-				RadiusRatio: 1,
-				// Three zones, not a continuous ramp: the point is to
-				// tell "usable" from "fast" at a glance, and a gradient
-				// makes every reading look mid-range. The boundaries
-				// sit on graduations (200 and 600) so a zone edge never
-				// falls between two labelled marks.
-				Zones: []chart.GaugeZone{
-					{Label: "Slow", Threshold: top * 0.2, Color: colorAlert},
-					{Label: "Fair", Threshold: top * 0.6, Color: colorLatency},
-					{Label: "Fast", Threshold: top, Color: accent},
-				},
-			}),
-		},
-	})
+	cfg := cardChrome()
+	// Fixed and roughly square: the dial's radius is half the smaller
+	// of the panel's two sides (chart/gauge.go), so any width past the
+	// panel's height is empty ground around the dial. The latency
+	// column takes that width instead.
+	cfg.Sizing = gui.FixedFill
+	cfg.Width = gaugeWidth
+	cfg.Padding = gui.NewPadding(8, 10, 8, 10)
+	cfg.Spacing = gui.SomeF(4)
+	cfg.Content = []gui.View{
+		panelTitle(gaugeTitle(s, unit), accent),
+		chart.Gauge(chart.GaugeCfg{
+			BaseCfg: chart.BaseCfg{
+				ID:     "chart:gauge",
+				Sizing: gui.FillFill,
+				// A dial has no axes, so the default chart
+				// padding (40/60px, reserved for tick labels)
+				// is dead space that shrinks the radius.
+				Theme: gaugeTheme(),
+				// The zone legend does not fit beside a dial this
+				// narrow, and it says nothing the colored arc does
+				// not already say.
+				LegendPosition: &noLegend,
+				Version:        s.Version,
+			},
+			Value:       value,
+			Min:         0,
+			Max:         top,
+			ShowValue:   true,
+			ShowPointer: true,
+			// The needle carries the direction, blue for download
+			// and green for upload, so a glance at the dial says
+			// which way the bytes are going without reading the
+			// title. The zone colors under it keep saying how fast
+			// the reading is.
+			PointerColor: accent,
+			// Six labelled graduations, a fifth of the range
+			// apart, with a minor mark every quarter of that.
+			// Enough to read the needle without counting, few
+			// enough that the numbers do not run into each other on
+			// a dial this size.
+			TickCount:      5,
+			MinorTicks:     3,
+			ShowTickLabels: true,
+			ValueFormat:    valueFormat,
+			// The default holds back 15% of the radius for the
+			// graduation labels. The theme padding above already
+			// reserves that room, so leaving the default in place
+			// would pay the same allowance twice and shrink the
+			// dial for nothing.
+			RadiusRatio: 1,
+			// Three zones, not a continuous ramp: the point is to
+			// tell "usable" from "fast" at a glance, and a gradient
+			// makes every reading look mid-range. The boundaries
+			// sit on graduations (200 and 600) so a zone edge never
+			// falls between two labelled marks.
+			Zones: []chart.GaugeZone{
+				{Label: "Slow", Threshold: top * 0.2, Color: colorAlert},
+				{Label: "Fair", Threshold: top * 0.6, Color: colorLatency},
+				{Label: "Fast", Threshold: top, Color: accent},
+			},
+			// Blend the three zones into one ramp. Hard zone edges
+			// drew two bright seams across the arc, which read as
+			// marks on the dial rather than as a scale; the ramp
+			// still goes red to amber to accent, so the same three
+			// readings are still tellable apart.
+			GradientZones: true,
+		}),
+	}
+	return gui.Column(cfg)
 }
 
 // gaugeValue picks what the needle points at.
@@ -400,10 +403,11 @@ func gaugeRange(s *State) (top, div float64, unit, format string) {
 // stalls a mean would hide.
 func boxPanel(s *State) gui.View {
 	if len(s.RTTms) < 2 {
-		return panel("Latency spread  ·  ms", placeholder("Collecting samples"))
+		return panel("Latency spread  ·  ms", colorLatency,
+			placeholder("Collecting samples"))
 	}
 
-	return panel("Latency spread  ·  ms", chart.BoxPlot(chart.BoxPlotCfg{
+	return panel("Latency spread  ·  ms", colorLatency, chart.BoxPlot(chart.BoxPlotCfg{
 		BaseCfg: chart.BaseCfg{
 			ID:     "chart:box",
 			Sizing: gui.FillFill,
@@ -436,10 +440,11 @@ func boxLabel(s *State) string {
 // right is a retransmit or a busy queue.
 func histogramPanel(s *State) gui.View {
 	if len(s.RTTms) < 3 {
-		return panel("Latency distribution", placeholder("Collecting samples"))
+		return panel("Latency distribution", colorLatency,
+			placeholder("Collecting samples"))
 	}
 
-	return panel("Latency distribution", chart.Histogram(chart.HistogramCfg{
+	return panel("Latency distribution", colorLatency, chart.Histogram(chart.HistogramCfg{
 		BaseCfg: chart.BaseCfg{
 			ID:      "chart:hist",
 			Sizing:  gui.FillFill,
@@ -573,10 +578,9 @@ func itoa(n int) string {
 // through a satellite ISP and a slow run to a datacenter two continents
 // away are different problems.
 func connPanel(s *State) gui.View {
-	theme := gui.CurrentTheme()
-
 	if s.Trace == nil {
-		return panel("Connection", placeholder("Waiting for the edge…"))
+		return panel("Connection", colorDown,
+			placeholder("Waiting for the edge…"))
 	}
 	t := s.Trace
 
@@ -594,19 +598,14 @@ func connPanel(s *State) gui.View {
 			connRow(gui.IconLock, "Protocol", t.HTTPProtocol, colorUp))
 	}
 
-	return gui.Column(gui.ContainerCfg{
-		Sizing:  gui.FixedFill,
-		Width:   connPanelWidth,
-		Color:   theme.ColorPanel,
-		Radius:  gui.SomeF(theme.RadiusSmall),
-		Padding: gui.NewPadding(8, 10, 8, 10),
-		Spacing: gui.SomeF(10),
-		Content: append([]gui.View{
-			gui.Text(gui.TextCfg{
-				Text: "Connection", TextStyle: theme.TextStyleLabel,
-			}),
-		}, rows...),
-	})
+	cfg := cardChrome()
+	cfg.Sizing = gui.FixedFill
+	cfg.Width = connPanelWidth
+	cfg.Padding = gui.NewPadding(8, 10, 8, 10)
+	cfg.Spacing = gui.SomeF(10)
+	cfg.Content = append(
+		[]gui.View{panelTitle("Connection", colorDown)}, rows...)
+	return gui.Column(cfg)
 }
 
 // connRow is one labelled fact: a colored icon, the label above, and

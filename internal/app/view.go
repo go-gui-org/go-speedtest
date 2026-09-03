@@ -30,8 +30,20 @@ func Root(w *gui.Window) gui.View {
 	theme := gui.CurrentTheme()
 
 	return gui.Column(gui.ContainerCfg{
-		Sizing:  gui.FillFill,
-		Color:   theme.ColorBackground,
+		Sizing: gui.FillFill,
+		Color:  theme.ColorBackground,
+		// A wash down the window, so the cards at the top sit against
+		// a slightly different ground than the ones at the bottom. On
+		// a flat fill every card had the same contrast against the
+		// same shade, which is what made the window read as a table.
+		Gradient: &gui.GradientDef{
+			Type:      gui.GradientLinear,
+			Direction: gui.GradientToBottom,
+			Stops: []gui.GradientStop{
+				{Color: lighten(theme.ColorBackground, 0.04), Pos: 0},
+				{Color: theme.ColorBackground, Pos: 1},
+			},
+		},
 		Padding: gui.NoPadding,
 		Content: []gui.View{
 			headerView(s),
@@ -64,9 +76,23 @@ func headerView(s *State) gui.View {
 		}))
 	}
 
-	return gui.Row(gui.ContainerCfg{
-		Sizing:     gui.FillFit,
-		Color:      theme.ColorPanel,
+	bar := gui.Row(gui.ContainerCfg{
+		Sizing: gui.FillFit,
+		Color:  theme.ColorPanel,
+		// Lit from the left in the download color. The ramp used to
+		// land on the bare panel color, which reads as the light
+		// running out into black by mid-bar. It now stops at the tint
+		// the old ramp had about a third of the way across and holds
+		// it to the right edge, so the whole bar stays lit and only
+		// the strength of the light changes.
+		Gradient: &gui.GradientDef{
+			Type:      gui.GradientLinear,
+			Direction: gui.GradientToRight,
+			Stops: []gui.GradientStop{
+				{Color: mix(theme.ColorPanel, colorDown, headerTintNear), Pos: 0},
+				{Color: mix(theme.ColorPanel, colorDown, headerTintFar), Pos: 1},
+			},
+		},
 		Padding:    gui.NewPadding(10, 16, 10, 16),
 		Spacing:    gui.SomeF(12),
 		VAlign:     gui.VAlignMiddle,
@@ -81,6 +107,47 @@ func headerView(s *State) gui.View {
 				Content:    left,
 			}),
 			runButton(s),
+		},
+	})
+
+	return gui.Column(gui.ContainerCfg{
+		Sizing:     gui.FillFit,
+		Padding:    gui.NoPadding,
+		Spacing:    gui.SomeF(0),
+		SizeBorder: gui.NoBorder,
+		Content:    []gui.View{bar, headerRule()},
+	})
+}
+
+// How much of the download color the title bar catches at each end.
+// The far value is not zero on purpose: it is roughly where the old
+// ramp sat a third of the way across, which keeps a trace of the
+// light on the right side instead of fading out to bare panel.
+const (
+	headerTintNear = 0.16
+	headerTintFar  = 0.06
+)
+
+// headerRuleHeight is a hairline, not a band: the rule is there to
+// close the header off, not to be looked at.
+const headerRuleHeight float32 = 2
+
+// headerRule is the download-to-upload sweep under the header. It is
+// the one place the two direction colors are shown together, which
+// says up front what the whole window is measuring.
+func headerRule() gui.View {
+	return gui.Rectangle(gui.RectangleCfg{
+		Sizing: gui.FillFixed,
+		Height: headerRuleHeight,
+		Color:  colorDown,
+		Gradient: &gui.GradientDef{
+			Type:      gui.GradientLinear,
+			Direction: gui.GradientToRight,
+			Stops: []gui.GradientStop{
+				{Color: colorDown, Pos: 0},
+				{Color: colorUp, Pos: 0.6},
+				{Color: colorLatency, Pos: 1},
+			},
 		},
 	})
 }
@@ -350,20 +417,15 @@ func latencyColumn(s *State) gui.View {
 }
 
 // panel wraps a chart in the standard card: a title above, the chart
-// filling the rest.
-func panel(title string, body gui.View) gui.View {
-	theme := gui.CurrentTheme()
-	return gui.Column(gui.ContainerCfg{
-		Sizing:  gui.FillFill,
-		Color:   theme.ColorPanel,
-		Radius:  gui.SomeF(theme.RadiusSmall),
-		Padding: gui.NewPadding(8, 10, 8, 10),
-		Spacing: gui.SomeF(4),
-		Content: []gui.View{
-			gui.Text(gui.TextCfg{Text: title, TextStyle: theme.TextStyleLabel}),
-			body,
-		},
-	})
+// filling the rest. The accent colors the title chip, which is the
+// only place a card states which reading it belongs to.
+func panel(title string, accent gui.Color, body gui.View) gui.View {
+	cfg := cardChrome()
+	cfg.Sizing = gui.FillFill
+	cfg.Padding = gui.NewPadding(8, 10, 8, 10)
+	cfg.Spacing = gui.SomeF(4)
+	cfg.Content = []gui.View{panelTitle(title, accent), body}
+	return gui.Column(cfg)
 }
 
 // placeholder fills a panel that has no data yet, so the layout does
