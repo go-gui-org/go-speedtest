@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"math"
 	"sync"
 	"time"
 
@@ -89,6 +90,15 @@ func pump(w *gui.Window, s *State, events <-chan probe.Event, started time.Time)
 			mbps := ev.Mbps
 			phase := ev.Phase
 
+			// A corrupt reading must not pollute the chart's domain
+			// (which tracks data bounds) or the filtered live value.
+			if math.IsNaN(mbps) || math.IsInf(mbps, 0) || mbps < 0 || mbps > 1e6 {
+				break
+			}
+			if x < 0 || x > 1e9 {
+				break
+			}
+
 			if phase == probe.PhaseUpload {
 				s.Up.Append(series.Point{X: x, Y: mbps})
 			} else {
@@ -96,13 +106,15 @@ func pump(w *gui.Window, s *State, events <-chan probe.Event, started time.Time)
 			}
 
 			pub.post(func(s *State) {
-				s.Live = mbps
 				if phase == probe.PhaseUpload {
-					s.LiveUp = mbps
-					s.PeakUp = max(s.PeakUp, mbps)
+					s.LiveUp = smoothLive(s.LiveUp, mbps)
 				} else {
-					s.LiveDown = mbps
-					s.PeakDown = max(s.PeakDown, mbps)
+					s.LiveDown = smoothLive(s.LiveDown, mbps)
+				}
+				// Latched off the filtered value, so a single spike
+				// cannot move the whole dial to the gigabit range.
+				if s.LiveDown > gaugeMax || s.LiveUp > gaugeMax {
+					s.HighRange = true
 				}
 				s.Version++
 			})
@@ -120,7 +132,6 @@ func pump(w *gui.Window, s *State, events <-chan probe.Event, started time.Time)
 			res := ev.Res
 			pub.post(func(s *State) {
 				s.Result = res
-				s.Live = 0
 				s.Version++
 			})
 			s.clearCancel()

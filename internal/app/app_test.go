@@ -10,51 +10,52 @@ import (
 	"github.com/go-gui-org/go-speedtest/internal/probe"
 )
 
-func TestGaugeScaleClimbsAndNeverClips(t *testing.T) {
-	cases := []struct {
-		peak float64
-		want float64
-	}{
-		{0, 25},
-		{20, 25},
-		{23, 50},  // 23 > 25*0.9, so step up
-		{47, 100}, // 47 > 50*0.9
-		{95, 250}, // 95 > 100*0.9
-		{940, 2500},
-		{9000, 5000},
+func TestGaugeRangeSwitchesAtGigabit(t *testing.T) {
+	// The base range counts in Mbps and reads the value straight.
+	top, div, unit, _ := gaugeRange(&State{})
+	if top != gaugeMax || div != 1 || unit != "Mbps" {
+		t.Errorf("base range = (%v, %v, %q)", top, div, unit)
 	}
-	for _, c := range cases {
-		s := &State{PeakDown: c.peak}
-		if got := gaugeScale(s); got != c.want {
-			t.Errorf("gaugeScale(peak=%v) = %v, want %v", c.peak, got, c.want)
-		}
+
+	// The gigabit range counts in Gbps, so the divisor must turn a
+	// reading in Mbps into a number the dial's own scale accepts.
+	top, div, unit, _ = gaugeRange(&State{HighRange: true})
+	if top != gaugeMaxGbps || unit != "Gbps" {
+		t.Errorf("high range = (%v, %q)", top, unit)
+	}
+	if got := 2500 / div; got != 2.5 {
+		t.Errorf("2500 Mbps on the gigabit dial = %v, want 2.5", got)
+	}
+	if gaugeMax/div > top {
+		t.Error("the switching point must fall on the gigabit dial")
 	}
 }
 
-func TestGaugeScaleAlwaysLeavesHeadroom(t *testing.T) {
-	// The needle must never sit at or past the end of the arc, or it
-	// reads as "off the scale" for a perfectly normal link.
-	for peak := 1.0; peak < 3000; peak *= 1.13 {
-		s := &State{PeakDown: peak}
-		if scale := gaugeScale(s); scale <= peak {
-			t.Fatalf("peak %v exceeds scale %v", peak, scale)
-		}
+func TestGaugeScaleIsFixed(t *testing.T) {
+	// The dial is fixed at 0..gaugeMax so a needle angle means the same
+	// speed in every run. The zone thresholds must stay inside it, or
+	// go-charts rejects the config.
+	if gaugeMax <= 0 {
+		t.Fatalf("gaugeMax = %v", gaugeMax)
+	}
+	if gaugeMax*0.6 >= gaugeMax {
+		t.Error("zone thresholds must ascend below the maximum")
 	}
 }
 
 func TestGaugeValueFollowsPhase(t *testing.T) {
-	s := &State{Phase: probe.PhaseUpload, Live: 42}
+	s := &State{Phase: probe.PhaseUpload, LiveUp: 42}
 	if v, c := gaugeValue(s); v != 42 || c != colorUp {
 		t.Errorf("upload phase = (%v, %v), want (42, colorUp)", v, c)
 	}
 
-	s = &State{Phase: probe.PhaseDownload, Live: 300}
+	s = &State{Phase: probe.PhaseDownload, LiveDown: 300}
 	if v, c := gaugeValue(s); v != 300 || c != colorDown {
 		t.Errorf("download phase = (%v, %v)", v, c)
 	}
 
 	// A finished run shows its headline figure, not the last live
-	// reading, which is zero by then.
+	// reading, which the filter leaves short of the mean.
 	s = &State{Phase: probe.PhaseDone, Result: &probe.Result{DownMbps: 512}}
 	if v, _ := gaugeValue(s); v != 512 {
 		t.Errorf("finished run = %v, want 512", v)
@@ -186,7 +187,7 @@ func TestResetClearsPreviousRun(t *testing.T) {
 	s.Trace = &probe.Trace{Colo: "SEA"}
 	s.Result = &probe.Result{DownMbps: 9}
 	s.Err = errTest{}
-	s.PeakDown = 400
+	s.LiveDown = 400
 	s.mapFitted = true
 
 	s.reset()
@@ -200,8 +201,8 @@ func TestResetClearsPreviousRun(t *testing.T) {
 	if s.Trace != nil || s.Result != nil || s.Err != nil {
 		t.Error("previous run's results survived reset")
 	}
-	if s.PeakDown != 0 {
-		t.Errorf("PeakDown = %v", s.PeakDown)
+	if s.LiveDown != 0 {
+		t.Errorf("LiveDown = %v", s.LiveDown)
 	}
 	if s.mapFitted {
 		t.Error("mapFitted survived reset; the map would not reframe")
@@ -257,10 +258,32 @@ func TestHardenedAppHelpers(t *testing.T) {
 	if got := liveWindow(-3); got != minLiveSeconds {
 		t.Errorf("liveWindow(-3) = %v, want %v", got, minLiveSeconds)
 	}
-	// gaugeScale must not propagate NaN into zone thresholds.
-	s := &State{PeakDown: math.NaN()}
-	if got := gaugeScale(s); got != 25 {
-		t.Errorf("gaugeScale(NaN) = %v, want 25", got)
+	// A NaN/Inf/negative/huge reading must not poison the dial's filter.
+	if got := smoothLive(100, math.NaN()); got != 100 {
+		t.Errorf("smoothLive(100, NaN) = %v, want 100", got)
+	}
+	if got := smoothLive(100, math.Inf(1)); got != 100 {
+		t.Errorf("smoothLive(100, +Inf) = %v, want 100", got)
+	}
+	if got := smoothLive(100, -5); got != 100 {
+		t.Errorf("smoothLive(100, -5) = %v, want 100", got)
+	}
+	if got := smoothLive(100, 2e6); got != 100 {
+		t.Errorf("smoothLive(100, 2e6) = %v, want 100", got)
+	}
+	// bounds must skip Inf, not just NaN, otherwise boxYAxis gets Inf domain.
+	if lo, hi := bounds([]float64{math.Inf(1), 5, 10, math.Inf(-1)}); lo != 5 || hi != 10 {
+		t.Errorf("bounds(Inf,5,10,Inf) = %v,%v want 5,10", lo, hi)
+	}
+	if lo, hi := bounds([]float64{math.Inf(1), math.Inf(-1)}); lo != 0 || hi != 1 {
+		t.Errorf("bounds(all Inf) = %v,%v want 0,1", lo, hi)
+	}
+	// mbpsTick near-integer due to floating error must still format as integer.
+	if got := mbpsTick(99.9999999998); got != "100" {
+		t.Errorf("mbpsTick(99.9999999998) = %q, want 100", got)
+	}
+	if got := mbpsTick(100.0000000002); got != "100" {
+		t.Errorf("mbpsTick(100.0000000002) = %q, want 100", got)
 	}
 	// boundsOf on empty must not panic.
 	if got := boundsOf(nil); got.NE.Lat != 0 || got.SW.Lat != 0 {
@@ -305,3 +328,58 @@ func assertNear(t *testing.T, got, want projection.LatLng, what string) {
 type errTest struct{}
 
 func (errTest) Error() string { return "boom" }
+
+func TestConnectionFieldsFormat(t *testing.T) {
+	// The family comes from the address itself: a colon can only
+	// appear in an IPv6 literal.
+	for ip, want := range map[string]string{
+		"203.0.113.7":  "IPv4",
+		"2606:4700::1": "IPv6",
+		"":             "—",
+	} {
+		if got := ipFamily(ip); got != want {
+			t.Errorf("ipFamily(%q) = %q, want %q", ip, got, want)
+		}
+	}
+
+	// A datacenter shows its city and its code together; a code we
+	// cannot name still shows, because the code alone is useful.
+	full := &probe.Trace{Colo: "SEA", ColoCity: "Seattle"}
+	if got := coloPlace(full); got != "Seattle (SEA)" {
+		t.Errorf("coloPlace = %q", got)
+	}
+	if got := coloPlace(&probe.Trace{Colo: "ZZZ"}); got != "ZZZ" {
+		t.Errorf("coloPlace(unknown) = %q", got)
+	}
+	if got := coloPlace(&probe.Trace{}); got != "—" {
+		t.Errorf("coloPlace(empty) = %q", got)
+	}
+
+	// The network line must survive a meta call that never answered,
+	// which is the common case on a locked-down network.
+	if got := networkName(&probe.Trace{}); got != "—" {
+		t.Errorf("networkName(empty) = %q", got)
+	}
+	if got := networkName(&probe.Trace{ASN: 64512}); got != "AS64512" {
+		t.Errorf("networkName(asn only) = %q", got)
+	}
+	if got := networkName(&probe.Trace{ASOrg: "EXAMPLE NET"}); got != "EXAMPLE NET" {
+		t.Errorf("networkName(org only) = %q", got)
+	}
+	want := "EXAMPLE NET  (AS64512)"
+	if got := networkName(&probe.Trace{ASOrg: "EXAMPLE NET", ASN: 64512}); got != want {
+		t.Errorf("networkName = %q, want %q", got, want)
+	}
+}
+
+func TestMbpsTickKeepsOneScale(t *testing.T) {
+	// Whole ticks must not gain a decimal the neighbouring tick lacks:
+	// that is what made an axis read 140, 120, 100, 80.0, 60.0.
+	for v, want := range map[float64]string{
+		0: "0", 20: "20", 140: "140", 2.5: "2.5",
+	} {
+		if got := mbpsTick(v); got != want {
+			t.Errorf("mbpsTick(%v) = %q, want %q", v, got, want)
+		}
+	}
+}

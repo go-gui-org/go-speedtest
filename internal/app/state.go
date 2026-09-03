@@ -7,6 +7,7 @@ package app
 
 import (
 	"context"
+	"math"
 	"sync"
 	"time"
 
@@ -48,21 +49,19 @@ type State struct {
 	Warn    error
 	Started time.Time
 
-	// Live is the most recent reading of whichever direction is being
-	// measured. It drives the gauge.
-	Live float64
-
-	// LiveDown and LiveUp are the most recent reading of each
-	// direction. The stat tiles show these while a run is going, so
-	// the download figure stays on screen through the upload phase.
+	// LiveDown and LiveUp are the smoothed reading of each direction.
+	// Both the dial and the stat text read them, so the two always
+	// agree, and the download figure stays on screen through the
+	// upload phase.
 	LiveDown float64
 	LiveUp   float64
 
-	// PeakDown and PeakUp are the largest readings seen. They size the
-	// gauge and nothing else: an upload peak is inflated by socket
-	// buffering, so it must never be shown as a measurement.
-	PeakDown float64
-	PeakUp   float64
+	// HighRange latches once a reading passes the top of the dial's
+	// base range, switching it to the gigabit scale. It latches rather
+	// than following the current reading because a dial that changed
+	// range whenever the rate crossed a gigabit would relabel itself
+	// several times a second on a link sitting near the boundary.
+	HighRange bool
 
 	// Demo and Timeout are the flags a new run is started with.
 	Demo    bool
@@ -148,11 +147,33 @@ func (s *State) reset() {
 	s.Result = nil
 	s.Err = nil
 	s.Warn = nil
-	s.Live = 0
 	s.LiveDown = 0
 	s.LiveUp = 0
-	s.PeakDown = 0
-	s.PeakUp = 0
+	s.HighRange = false
 	s.mapFitted = false
 	s.Version++
+}
+
+// liveSmoothing is the weight a new reading gets in the displayed rate.
+//
+// Rates arrive every 50ms (probe.rateInterval), and the raw figure
+// swings by tens of Mbps between samples, so an unfiltered needle blurs
+// and the text under it flickers. This is a one-pole low pass,
+// alpha = 1-exp(-dt/tau) with tau = 1s: a step is most of the way there
+// in about a second, which gives the needle the weight of an analog
+// movement without hiding a real change in rate.
+const liveSmoothing = 0.05
+
+// smoothLive folds one reading into a direction's filtered rate. Each
+// direction has its own accumulator, so the change of phase restarts
+// the filter at zero instead of gliding down from the download figure.
+func smoothLive(prev, sample float64) float64 {
+	// A NaN or Inf sample would stick: every later reading folds into
+	// it and comes back NaN/Inf, so the dial would stay blank for the
+	// rest of the run. Negative or wildly large values are measurement
+	// artefacts — drop them and keep the last good value instead.
+	if math.IsNaN(sample) || math.IsInf(sample, 0) || sample < 0 || sample > 1e6 {
+		return prev
+	}
+	return prev + liveSmoothing*(sample-prev)
 }
