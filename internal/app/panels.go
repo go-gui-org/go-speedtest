@@ -411,6 +411,19 @@ func gaugeRange(s *State) (top, div float64, unit, format string) {
 // measurements. They share the timeline, so the colors meet end to end
 // and the steps between them are the reading.
 func latencyPanel(s *State) gui.View {
+	// Nothing is drawn while the run is on. The samples arrive over
+	// twenty seconds and each one rescales the axis and redraws every
+	// series, so a chart that is being watched flickers and jumps for
+	// the whole test. It is also the one panel with nothing to say
+	// until all three phases are in: the reading is the comparison
+	// between them. A spinner holds the space until then, and the
+	// chart arrives complete.
+	if s.Phase.Active() {
+		return panel("Latency  ·  ms", colorLatency,
+			busyPlaceholder("Measuring latency",
+				gui.SvgSpinnerPulseRingsMultiple, colorLatency))
+	}
+
 	phases := rttPhases(s)
 	if len(phases) == 0 {
 		return panel("Latency  ·  ms", colorLatency,

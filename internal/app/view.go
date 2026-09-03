@@ -421,6 +421,40 @@ func panel(title string, accent gui.Color, body gui.View) gui.View {
 
 // placeholder fills a panel that has no data yet, so the layout does
 // not jump when the first samples arrive.
+// busyPlaceholder is what a panel shows while its chart is still being
+// measured: a spinner and a line of text, centred in the card.
+//
+// The spinner is self-driving — it registers its own render ticker
+// while it is in the tree — so it costs the app nothing but a place to
+// stand.
+func busyPlaceholder(text string, kind gui.SvgSpinnerKind, accent gui.Color) gui.View {
+	theme := gui.CurrentTheme()
+	return gui.Column(gui.ContainerCfg{
+		Sizing:     gui.FillFill,
+		Padding:    gui.NoPadding,
+		Spacing:    gui.SomeF(10),
+		HAlign:     gui.HAlignCenter,
+		VAlign:     gui.VAlignMiddle,
+		SizeBorder: gui.NoBorder,
+		Content: []gui.View{
+			gui.SvgSpinner(gui.SvgSpinnerCfg{
+				ID:   "spinner:" + text,
+				Kind: kind,
+				// Large: this fills a panel, not a line of text, and
+				// the pulse rings fade as they expand, so a small one
+				// is barely there.
+				Width:   72,
+				Height:  72,
+				Color:   accent,
+				A11YCfg: gui.A11YCfg{A11YLabel: text},
+			}),
+			gui.Text(gui.TextCfg{
+				Text: text, TextStyle: theme.TextStylePlaceholder,
+			}),
+		},
+	})
+}
+
 func placeholder(text string) gui.View {
 	theme := gui.CurrentTheme()
 	return gui.Column(gui.ContainerCfg{
