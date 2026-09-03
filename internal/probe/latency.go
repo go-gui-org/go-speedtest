@@ -55,3 +55,67 @@ func measureRTT(ctx context.Context, cfg Config) (time.Duration, error) {
 	}
 	return firstByte.Sub(start), nil
 }
+
+// rttSampler times round trips in the background while a transfer runs.
+//
+// The interesting latency number is not the idle one. A link that
+// answers in 20ms when nothing is happening and 900ms while a file is
+// downloading has a full buffer somewhere in the path, and that is what
+// makes calls stutter and pages hang mid-transfer. Measuring it needs
+// samples taken during the load, not before it.
+//
+// The probe is a zero-byte request, so it costs a round trip and
+// nothing else: it rides the queue it is measuring rather than adding
+// to it.
+type rttSampler struct {
+	cancel context.CancelFunc
+	done   chan []time.Duration
+}
+
+// startRTTSampler begins sampling until stop is called. Samples are
+// emitted as they arrive, tagged with phase, so the chart fills in
+// during the transfer rather than all at once at the end.
+func startRTTSampler(
+	ctx context.Context, cfg Config, phase Phase, emit func(Event),
+) *rttSampler {
+	ctx, cancel := context.WithCancel(ctx)
+	s := &rttSampler{cancel: cancel, done: make(chan []time.Duration, 1)}
+
+	go func() {
+		var out []time.Duration
+		start := time.Now()
+		t := time.NewTicker(cfg.LoadedRTTInterval)
+		defer t.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				s.done <- out
+				return
+			case <-t.C:
+			}
+			// A sample that fails under load is not news: the transfer
+			// is saturating the link and one probe lost the race. The
+			// phase's own error handling covers a link that is
+			// actually broken.
+			rtt, err := measureRTT(ctx, cfg)
+			if err != nil {
+				continue
+			}
+			out = append(out, rtt)
+			emit(Event{
+				Kind:    EventRTT,
+				Phase:   phase,
+				Elapsed: time.Since(start),
+				RTT:     rtt,
+			})
+		}
+	}()
+	return s
+}
+
+// stop ends sampling and returns everything collected. It waits for the
+// goroutine to finish, so no event can arrive after it returns.
+func (s *rttSampler) stop() []time.Duration {
+	s.cancel()
+	return <-s.done
+}

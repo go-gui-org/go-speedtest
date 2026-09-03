@@ -182,7 +182,10 @@ func TestGreatCircleDegenerate(t *testing.T) {
 
 func TestResetClearsPreviousRun(t *testing.T) {
 	s := New(true, time.Minute, nil)
-	s.RTTms = append(s.RTTms, 12, 13)
+	s.RTTIdle.add(0.1, 12)
+	s.RTTIdle.add(0.2, 13)
+	s.RTTDown.add(3, 90)
+	s.RTTDown.add(3.5, 95)
 	s.Down.Append(series.Point{X: 1, Y: 100})
 	s.Trace = &probe.Trace{Colo: "SEA"}
 	s.Result = &probe.Result{DownMbps: 9}
@@ -192,8 +195,11 @@ func TestResetClearsPreviousRun(t *testing.T) {
 
 	s.reset()
 
-	if len(s.RTTms) != 0 {
-		t.Errorf("RTTms not cleared: %v", s.RTTms)
+	if s.RTTIdle.len() != 0 || len(s.RTTIdle.Pts) != 0 {
+		t.Errorf("idle samples not cleared: %v", s.RTTIdle.Vals)
+	}
+	if s.RTTDown.len() != 0 || len(s.RTTDown.Pts) != 0 {
+		t.Errorf("loaded samples not cleared: %v", s.RTTDown.Vals)
 	}
 	if n := len(s.Down.Snapshot().Points); n != 0 {
 		t.Errorf("download series not cleared: %d points", n)

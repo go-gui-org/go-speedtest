@@ -78,8 +78,23 @@ func pump(w *gui.Window, s *State, events <-chan probe.Event, started time.Time)
 
 		case probe.EventRTT:
 			ms := float64(ev.RTT) / float64(time.Millisecond)
+			// Which phase a sample came from is the whole point of
+			// collecting it: idle and loaded latency are different
+			// readings and go in different boxes.
+			phase := ev.Phase
+			// Seconds since the run began, the same clock the rate
+			// events use, so the latency chart lines up with the
+			// throughput charts above it.
+			x := time.Since(started).Seconds()
 			pub.post(func(s *State) {
-				s.RTTms = append(s.RTTms, ms)
+				switch phase {
+				case probe.PhaseDownload:
+					s.RTTDown.add(x, ms)
+				case probe.PhaseUpload:
+					s.RTTUp.add(x, ms)
+				default:
+					s.RTTIdle.add(x, ms)
+				}
 				s.Version++
 			})
 

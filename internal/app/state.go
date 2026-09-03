@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/go-gui-org/go-charts/chart"
+	"github.com/go-gui-org/go-charts/series"
 	"github.com/go-gui-org/go-gui/gui"
 	"github.com/go-gui-org/go-map/tile"
 	"github.com/go-gui-org/go-speedtest/internal/probe"
@@ -35,10 +36,15 @@ type State struct {
 	Down *chart.RealTimeSeries
 	Up   *chart.RealTimeSeries
 
-	// RTTms holds latency samples in milliseconds, in collection
-	// order. Collection order matters: jitter is defined over
-	// consecutive samples.
-	RTTms []float64
+	// Latency samples, one set per phase, each plotted against seconds
+	// since the run began so the three lie on the same timeline as the
+	// throughput charts. Kept apart because the comparison is the
+	// measurement: latency at rest next to latency while the link is
+	// busy is what says whether a call survives someone else starting
+	// a download.
+	RTTIdle rttPhase
+	RTTDown rttPhase
+	RTTUp   rttPhase
 
 	Phase  probe.Phase
 	Trace  *probe.Trace
@@ -142,7 +148,9 @@ func (s *State) clearCancel() bool {
 func (s *State) reset() {
 	s.Down.Clear()
 	s.Up.Clear()
-	s.RTTms = s.RTTms[:0]
+	s.RTTIdle.reset()
+	s.RTTDown.reset()
+	s.RTTUp.reset()
 	s.Trace = nil
 	s.Result = nil
 	s.Err = nil
@@ -177,3 +185,31 @@ func smoothLive(prev, sample float64) float64 {
 	}
 	return prev + liveSmoothing*(sample-prev)
 }
+
+// rttPhase holds one phase's latency samples twice over: as chart
+// points, and as bare milliseconds.
+//
+// The duplication is deliberate. The chart wants (seconds, ms) pairs
+// and the panel title wants a median, and pulling the Y values out of
+// the points to compute one would allocate a slice on every frame. The
+// sample count is in the tens, so carrying both costs nothing.
+type rttPhase struct {
+	Pts  []series.Point
+	Vals []float64
+}
+
+// add records one sample: x is seconds since the run began, ms the
+// round trip.
+func (r *rttPhase) add(x, ms float64) {
+	r.Pts = append(r.Pts, series.Point{X: x, Y: ms})
+	r.Vals = append(r.Vals, ms)
+}
+
+// reset empties the phase, keeping the backing arrays for the next run.
+func (r *rttPhase) reset() {
+	r.Pts = r.Pts[:0]
+	r.Vals = r.Vals[:0]
+}
+
+// len is the sample count.
+func (r *rttPhase) len() int { return len(r.Vals) }

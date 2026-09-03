@@ -254,8 +254,8 @@ func statsPanel(s *State) gui.View {
 		Content: []gui.View{
 			statText("Download", format.Mbps(down), "Mbps", colorDown),
 			statText("Upload", format.Mbps(up), "Mbps", colorUp),
-			statText("Latency", format.MillisF(stats.Median(s.RTTms)), "ms p50", colorLatency),
-			statText("Jitter", format.MillisF(stats.Jitter(s.RTTms)), "ms", colorLatency),
+			statText("Latency", format.MillisF(stats.Median(s.RTTIdle.Vals)), "ms p50", colorLatency),
+			statText("Jitter", format.MillisF(stats.Jitter(s.RTTIdle.Vals)), "ms", colorLatency),
 			statText("Elapsed", elapsedText(s), "", theme.B2.Color),
 		},
 	})
@@ -399,21 +399,12 @@ func secondRow(s *State) gui.View {
 	})
 }
 
-// latencyColumn stacks the two views of the same samples, because a
-// box plot and a histogram answer different questions.
+// latencyColumn is the latency plot, filling the height two shorter
+// charts used to share. One tall panel beats two short ones here: the
+// samples run from tens of milliseconds to the occasional stall in the
+// seconds, and that range needs the height to stay readable.
 func latencyColumn(s *State) gui.View {
-	return gui.Column(gui.ContainerCfg{
-		// Fill: this column takes whatever width the square gauge
-		// panel and the fit-width stats leave.
-		Sizing:     gui.FillFill,
-		Padding:    gui.NoPadding,
-		Spacing:    gui.SomeF(10),
-		SizeBorder: gui.NoBorder,
-		Content: []gui.View{
-			boxPanel(s),
-			histogramPanel(s),
-		},
-	})
+	return latencyPanel(s)
 }
 
 // panel wraps a chart in the standard card: a title above, the chart

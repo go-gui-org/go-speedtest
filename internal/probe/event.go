@@ -103,6 +103,13 @@ type Result struct {
 	// and histogram take this slice raw.
 	RTTs []time.Duration
 
+	// DownRTTs and UpRTTs hold the latency samples taken while each
+	// transfer was running. Compared against RTTs they are the
+	// bufferbloat reading: how far latency rises once the link is
+	// busy. Empty when a phase was skipped or never got a sample back.
+	DownRTTs []time.Duration
+	UpRTTs   []time.Duration
+
 	// DownMbps and UpMbps are the headline numbers: the 90th percentile
 	// of instantaneous readings, which is closer to what a user
 	// experiences than a mean dragged down by TCP ramp-up.

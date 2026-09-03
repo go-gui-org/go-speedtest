@@ -395,101 +395,136 @@ func gaugeRange(s *State) (top, div float64, unit, format string) {
 	return gaugeMax, 1, "Mbps", "%.0f"
 }
 
-// boxPanel shows the latency distribution as a box and whisker.
+// latencyPanel plots every latency sample against the clock.
 //
-// go-charts computes the Tukey quartiles and the 1.5×IQR fences itself
-// from the raw samples, which is exactly the input a latency test
-// already has. The outlier dots are the interesting part: they are the
-// stalls a mean would hide.
-func boxPanel(s *State) gui.View {
-	if len(s.RTTms) < 2 {
-		return panel("Latency spread  ·  ms", colorLatency,
+// It replaces a box plot and a histogram stacked in the same space.
+// Both of those spend their vertical axis on the value and almost
+// nothing on the width, which is the wrong shape for a panel that is
+// wide and short, and a single 2-second outlier flattened everything
+// else in them. A time series is the one chart that gets better with
+// width, and it answers the question the other two only implied: the
+// line sits low while the link is idle and steps up the moment a
+// transfer starts, which is the delay a call picks up when someone
+// else opens a download.
+//
+// Three series rather than one, because the phases are different
+// measurements. They share the timeline, so the colors meet end to end
+// and the steps between them are the reading.
+func latencyPanel(s *State) gui.View {
+	phases := rttPhases(s)
+	if len(phases) == 0 {
+		return panel("Latency  ·  ms", colorLatency,
 			placeholder("Collecting samples"))
 	}
 
-	return panel("Latency spread  ·  ms", colorLatency, chart.BoxPlot(chart.BoxPlotCfg{
-		BaseCfg: chart.BaseCfg{
-			ID:     "chart:box",
-			Sizing: gui.FillFill,
-			// The X-axis category label already names the box; a
-			// legend would print it a second time.
-			LegendPosition: &noLegend,
-			Version:        s.Version,
-		},
-		YAxis: boxYAxis(s.RTTms),
-		// A single box stretched across a wide panel reads as a bar
-		// chart. Pin the body width and let the whiskers have the room.
-		BoxWidth: 120,
-		Data: []chart.BoxData{{
-			Label:  boxLabel(s),
-			Values: s.RTTms,
-			Color:  colorLatency,
-		}},
-	}))
-}
-
-// boxLabel puts the two numbers a box plot does not draw — the sample
-// count and p95 — where the axis label already is.
-func boxLabel(s *State) string {
-	return "n=" + itoa(len(s.RTTms)) +
-		"  p95 " + format.MillisF(stats.Percentile(s.RTTms, 0.95))
-}
-
-// histogramPanel shows the same samples as a shape rather than a
-// summary: a tight single peak is a healthy link, a second peak to the
-// right is a retransmit or a busy queue.
-func histogramPanel(s *State) gui.View {
-	if len(s.RTTms) < 3 {
-		return panel("Latency distribution", colorLatency,
-			placeholder("Collecting samples"))
+	var (
+		sets []series.XY
+		all  []float64
+	)
+	for _, p := range phases {
+		all = append(all, p.phase.Vals...)
+		sets = append(sets, series.NewXY(series.XYCfg{
+			Name:   p.label,
+			Color:  p.color,
+			Points: p.phase.Pts,
+		}))
 	}
 
-	return panel("Latency distribution", colorLatency, chart.Histogram(chart.HistogramCfg{
+	return panel(latencyTitle(phases), colorLatency, chart.Line(chart.LineCfg{
 		BaseCfg: chart.BaseCfg{
-			ID:      "chart:hist",
+			ID:      "chart:latency",
 			Sizing:  gui.FillFill,
 			Version: s.Version,
+			// The title names all three phases and their colors match
+			// the panels they belong to, so a legend would cost a
+			// corner of the plot to repeat what is already said.
+			LegendPosition: &noLegend,
+			TooltipXLabel:  "sec",
+			TooltipYLabel:  "ms",
 		},
-		// Re-binning every frame is fine here: the sample count is in
-		// the tens, and the run is bounded by the network, not by this.
-		Data:       s.RTTms,
-		Color:      colorLatency,
-		Radius:     2,
-		TickFormat: format.MillisF,
+		// No zoom or pan: the whole run is on screen already.
+		InteractionCfg: chart.InteractionCfg{},
+		Series:         sets,
+		LineWidth:      2,
+		// Markers because the samples are sparse — half a second apart
+		// under load — and a bare line between two of them invents
+		// readings that were never taken.
+		ShowMarkers: true,
+		XAxis:       liveXAxis(),
+		YAxis:       latencyYAxis(all),
 	}))
 }
 
-// boxYAxis sets the latency box plot's Y range and thins its labels.
-//
-// The range has to be set here: go-charts only calls SetRange on an
-// axis it created itself (chart/boxplot.go), so a supplied axis that
-// is never given a domain collapses the box to a flat line.
-//
-// The thinning is because go-charts asks for eight ticks whatever the
-// panel is worth, and this panel is a third of a window tall: at a
-// 20 ms spread that is a tick every 2 ms and the labels print on top of
-// each other. All eight gridlines are still drawn — they are what makes
-// the box readable — but only every labelStep'th value gets text.
-func boxYAxis(vals []float64) axis.Axis {
-	lo, hi := bounds(vals)
-	step := labelStep(hi - lo)
+// rttPhaseView is one plotted phase: its samples, what to call it, and
+// the color that phase carries elsewhere in the window.
+type rttPhaseView struct {
+	label string
+	phase *rttPhase
+	color gui.Color
+}
 
+// rttPhases returns the phases with enough samples to draw. Two is the
+// minimum: one point is a dot with no line, and no trend.
+func rttPhases(s *State) []rttPhaseView {
+	cand := []rttPhaseView{
+		{"idle", &s.RTTIdle, colorLatency},
+		{"download", &s.RTTDown, colorDown},
+		{"upload", &s.RTTUp, colorUp},
+	}
+	out := make([]rttPhaseView, 0, len(cand))
+	for _, p := range cand {
+		if p.phase.len() >= 2 {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+// latencyTitle carries the numbers the plot does not print: the median
+// for each phase drawn. Medians rather than means, because one stalled
+// sample should not move the summary the line already shows.
+func latencyTitle(phases []rttPhaseView) string {
+	title := "Latency  ·  ms"
+	for _, p := range phases {
+		title += "  ·  " + p.label + " " +
+			format.MillisF(stats.Median(p.phase.Vals))
+	}
+	return title
+}
+
+// latencyYAxis scales the latency plot.
+//
+// The floor is pinned at zero: latency is a distance from zero and a
+// plot that starts at 70ms makes a 5ms wobble look like a collapse.
+// The ceiling comes from the data, so a run on a clean link is not
+// squashed into the bottom of an axis sized for one that is not.
+func latencyYAxis(vals []float64) axis.Axis {
+	_, hi := bounds(vals)
 	a := axis.NewLinear(axis.LinearCfg{
-		AutoRange: true,
-		TickFormat: func(v float64) string {
-			// Rounded before the test: a tick value reached by
-			// repeated addition of a nice spacing is not exact.
-			if math.Abs(math.Remainder(v, step)) > step/100 {
-				return ""
-			}
-			return format.MillisF(v)
-		},
+		// Four labels, matching the throughput charts beside it. The
+		// panel is not tall enough for the default eight without the
+		// labels merging into a grey column.
+		TickCount: 4,
+		// AutoRange rounds the domain out to the tick spacing. Without
+		// it the top of the range lands between ticks and the axis
+		// draws a label for the raw maximum under the lowest tick,
+		// which prints on top of the X labels.
+		AutoRange:  true,
+		TickFormat: msTick,
 	})
-	// The same 5% breathing room go-charts gives an axis of its own,
-	// so a whisker that reaches the extreme still has a gap above it.
-	pad := (hi - lo) * 0.05
-	a.SetRange(lo-pad, hi+pad)
+	a.SetRange(0, hi)
 	return a
+}
+
+// msTick labels a latency axis in whole milliseconds.
+//
+// format.MillisF varies its precision with the value, which is right
+// for a single reading and wrong for a column of ticks: an axis came
+// out as 200, 100, 0.0, which reads as two scales stacked.
+func msTick(v float64) string {
+	// Ticks are reached by repeated addition of a nice spacing, so 100
+	// can arrive as 99.9999999998.
+	return strconv.FormatFloat(math.Round(v), 'f', 0, 64)
 }
 
 // bounds is the smallest and largest finite value in vals. An empty,

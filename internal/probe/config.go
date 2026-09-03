@@ -35,6 +35,15 @@ type Config struct {
 	// enough for a stable p95 and for the histogram to have a shape.
 	LatencySamples int
 
+	// LoadedRTTInterval is how often a latency sample is taken while a
+	// transfer is running. Idle latency on its own says little: what
+	// makes a link feel slow is what happens to latency when the link
+	// is busy, so the download and upload phases are sampled too and
+	// the box plot compares the three. Defaults to 500ms, which is
+	// frequent enough to fill a box over a phase and sparse enough
+	// that the probe itself is not the load.
+	LoadedRTTInterval time.Duration
+
 	// DownStages and UpStages are payload sizes in bytes, run in order.
 	// Small first: the early stages warm the connection while the chart
 	// already has something to draw.
@@ -101,6 +110,9 @@ func (cfg Config) withDefaults() Config {
 	}
 	if cfg.LatencySamples > 1000 {
 		cfg.LatencySamples = 1000
+	}
+	if cfg.LoadedRTTInterval <= 0 {
+		cfg.LoadedRTTInterval = 500 * time.Millisecond
 	}
 	if cfg.MinPhaseDuration <= 0 {
 		cfg.MinPhaseDuration = 8 * time.Second
