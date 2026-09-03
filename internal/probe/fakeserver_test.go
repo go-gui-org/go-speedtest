@@ -31,6 +31,8 @@ type fakeEdge struct {
 	// calls have already succeeded. It reproduces a link that drops
 	// part way through a transfer.
 	failDownAfter atomic.Int64
+
+	metaCalls atomic.Int64
 }
 
 func newFakeEdge(t *testing.T) *fakeEdge {
@@ -46,6 +48,24 @@ func newFakeEdge(t *testing.T) *fakeEdge {
 		io.WriteString(w, "fl=99f42\nh=speed.example\nip=203.0.113.7\n"+
 			"ts=1700000000.1\nvisit_scheme=https\ncolo="+
 			toLowerASCII(e.colo)+"\nloc="+toLowerASCII(e.loc)+"\nhttp=http/2\n")
+	})
+
+	mux.HandleFunc("/meta", func(w http.ResponseWriter, r *http.Request) {
+		e.metaCalls.Add(1)
+		// Carries a field the decoder must ignore, so the endpoint can
+		// grow without breaking the parse.
+		w.Header().Set("Content-Type", "application/json")
+		// The colo block is filled only for the one code this fake
+		// knows, so a test that sets an unrecognised colo still gets
+		// the unresolved case it is asking for.
+		colo := `{"iata":"` + e.colo + `"}`
+		if e.colo == "SEA" {
+			colo = `{"iata":"SEA","city":"Seattle","lat":47.45,"lon":-122.31}`
+		}
+		io.WriteString(w, `{"clientIp":"203.0.113.7","httpProtocol":"HTTP/2",`+
+			`"asn":64512,"asOrganization":"EXAMPLE NET","city":"Peosta",`+
+			`"region":"Iowa","country":"US","postalCode":"52068",`+
+			`"colo":`+colo+`}`)
 	})
 
 	mux.HandleFunc("/__down", func(w http.ResponseWriter, r *http.Request) {

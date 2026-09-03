@@ -6,6 +6,7 @@ package probe
 
 import (
 	"context"
+	"log/slog"
 	"time"
 
 	"github.com/go-gui-org/go-speedtest/internal/stats"
@@ -65,6 +66,12 @@ func (e *Engine) run(ctx context.Context, emit func(Event)) {
 	if err != nil {
 		fail(emit, PhaseTrace, err)
 		return
+	}
+	// Best effort, and deliberately not fatal: this call only adds
+	// detail to the connection panel, and the run below does not
+	// depend on any of it.
+	if err := fetchMeta(ctx, e.cfg, tr); err != nil {
+		slog.Debug("meta lookup failed", "err", err)
 	}
 	res.Trace = *tr
 	emit(Event{Kind: EventTrace, Phase: PhaseTrace, Trace: tr})

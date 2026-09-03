@@ -40,7 +40,13 @@ func (e *Engine) runSimulated(ctx context.Context, emit func(Event)) {
 	if !simSleep(ctx, scaled(350*time.Millisecond, scale)) {
 		return
 	}
-	tr := &Trace{Colo: "SEA", IP: "203.0.113.7", Loc: "US"}
+	// Documentation-range address and a made-up network, so a demo
+	// screenshot never shows a real subscriber's details.
+	tr := &Trace{
+		Colo: "SEA", IP: "203.0.113.7", Loc: "US",
+		ASN: 64512, ASOrg: "EXAMPLE VALLEY BROADBAND COOPERATIVE",
+		City: "Peosta", Region: "Iowa", HTTPProtocol: "HTTP/2",
+	}
 	resolveLocations(tr)
 	res.Trace = *tr
 	emit(Event{Kind: EventTrace, Phase: PhaseTrace, Trace: tr})
