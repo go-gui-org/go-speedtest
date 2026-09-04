@@ -497,12 +497,17 @@ func rttPhases(s *State) []rttPhaseView {
 // for each phase drawn. Medians rather than means, because one stalled
 // sample should not move the summary the line already shows.
 func latencyTitle(phases []rttPhaseView) string {
-	title := "Latency  ·  ms"
+	// A builder rather than repeated concatenation: the title is rebuilt
+	// on every frame of a run, and += allocates a new string per phase.
+	var b strings.Builder
+	b.WriteString("Latency  ·  ms")
 	for _, p := range phases {
-		title += "  ·  " + p.label + " " +
-			format.MillisF(stats.Median(p.phase.Vals))
+		b.WriteString("  ·  ")
+		b.WriteString(p.label)
+		b.WriteByte(' ')
+		b.WriteString(format.MillisF(stats.Median(p.phase.Vals)))
 	}
-	return title
+	return b.String()
 }
 
 // latencyYAxis scales the latency plot.
@@ -555,20 +560,6 @@ func bounds(vals []float64) (lo, hi float64) {
 		return 0, 1
 	}
 	return lo, hi
-}
-
-// labelStep picks the spacing between labelled ticks: the smallest
-// familiar round number that keeps the label count near five.
-func labelStep(span float64) float64 {
-	if !(span > 0) {
-		return 1
-	}
-	for _, step := range []float64{1, 2, 5, 10, 20, 50, 100, 200, 500} {
-		if span/step <= 5 {
-			return step
-		}
-	}
-	return 1000
 }
 
 // latestX is the largest X value present in either series, which is

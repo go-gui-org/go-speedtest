@@ -227,13 +227,7 @@ const maxCkSize = 1024
 // at the start of the phase and nothing after it, because
 // MinPhaseDuration decides when the phase actually ends.
 func (libreSpeedBackend) downloadURL(cfg Config, size int64) string {
-	ck := (size + mib - 1) / mib
-	if ck < 1 {
-		ck = 1
-	}
-	if ck > maxCkSize {
-		ck = maxCkSize
-	}
+	ck := min(max((size+mib-1)/mib, 1), maxCkSize)
 	return joinPath(cfg.Server.URL, cfg.Server.Download) +
 		"?ckSize=" + strconv.FormatInt(ck, 10) + "&r=" + bust()
 }
