@@ -186,17 +186,13 @@ func providerPicker(s *State) gui.View {
 
 	content := []gui.View{
 		gui.Combobox(gui.ComboboxCfg{
-			ID:      "provider",
-			Options: names,
-			// The list is taller than MaxDropdownHeight, and an
-			// unscrollable dropdown paints its overflow outside the
-			// panel instead of clipping it.
-			Scrollable: true,
-			Value:      s.Provider().Name,
-			MinWidth:   pickerWidth,
-			MaxWidth:   pickerWidth,
-			Disabled:   running,
-			A11YCfg:    gui.A11YCfg{A11YLabel: "Speed test provider"},
+			ID:       "provider",
+			Options:  names,
+			Value:    s.Provider().Name,
+			MinWidth: pickerWidth,
+			MaxWidth: pickerWidth,
+			Disabled: running,
+			A11YCfg:  gui.A11YCfg{A11YLabel: "Speed test provider"},
 			OnSelect: func(name string, ctx gui.EventCtx) {
 				st := state(ctx.Window)
 				for i, p := range st.Providers {
@@ -226,16 +222,13 @@ func providerPicker(s *State) gui.View {
 			names[i] = srv.Name
 		}
 		content = append(content, gui.Combobox(gui.ComboboxCfg{
-			ID:      "server",
-			Options: names,
-			// Server lists run to dozens of entries; without this the
-			// rows below the cap draw over the window (see above).
-			Scrollable: true,
-			Value:      s.Server().Name,
-			MinWidth:   serverWidth,
-			MaxWidth:   serverWidth,
-			Disabled:   running,
-			A11YCfg:    gui.A11YCfg{A11YLabel: "Speed test server"},
+			ID:       "server",
+			Options:  names,
+			Value:    s.Server().Name,
+			MinWidth: serverWidth,
+			MaxWidth: serverWidth,
+			Disabled: running,
+			A11YCfg:  gui.A11YCfg{A11YLabel: "Speed test server"},
 			OnSelect: func(name string, ctx gui.EventCtx) {
 				st := state(ctx.Window)
 				for i, srv := range st.Provider().Servers {
