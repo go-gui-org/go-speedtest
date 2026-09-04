@@ -32,14 +32,64 @@ The window opens. Click **Start test**.
 
 ## Command-line options
 
-| Flag                        | What it does                                   |
-| --------------------------- | ---------------------------------------------- |
-| `-demo`                     | Use the offline generator. No network.         |
-| `-start`                    | Start a run as soon as the window opens.       |
-| `-once`                     | Run one test, print a text report, and exit.   |
-| `-screenshot <path>`        | Render one frame to a PNG file and exit.       |
-| `-screenshot-at <duration>` | How far into the run to capture. Default 9s.   |
-| `-timeout <duration>`       | Give up on a run after this long. Default 90s. |
+| Flag                        | What it does                                         |
+| --------------------------- | ---------------------------------------------------- |
+| `-provider <name>`          | Which provider to use. See the list below.           |
+| `-provider-url <url>`       | Base URL for the `custom` provider.                  |
+| `-demo`                     | Use the offline generator. Same as `-provider demo`. |
+| `-start`                    | Start a run as soon as the window opens.             |
+| `-once`                     | Run one test, print a text report, and exit.         |
+| `-screenshot <path>`        | Render one frame to a PNG file and exit.             |
+| `-screenshot-at <duration>` | How far into the run to capture. Default 9s.         |
+| `-timeout <duration>`       | Give up on a run after this long. Default 90s.       |
+| `-server <name>`            | Which server, for a provider that has a list.        |
+
+## Providers
+
+The window has a provider picker in the title bar. It is locked while a test is
+running. The command line reads the same list, and a name only has to match the
+start of an entry, so `-provider demo` is enough.
+
+| Name             | What it measures                                          |
+| ---------------- | --------------------------------------------------------- |
+| `Demo (offline)` | Numbers generated on your machine. Touches no network.    |
+| `Cloudflare`     | `speed.cloudflare.com`, the public endpoint. The default. |
+| `LibreSpeed`     | One of 22 public LibreSpeed servers, listed by city.      |
+| `Custom URL`     | Any host running Cloudflare's speed worker.               |
+
+Cloudflare and the custom entry speak the same API: `/__down`, `/__up`,
+`/cdn-cgi/trace` and `/meta`. For those, a provider is a base URL. To point at
+your own deployment of that worker, run this command:
+
+```
+go run ./cmd/go-speedtest -provider custom -provider-url https://host.example
+```
+
+LibreSpeed is a different protocol, so it is a different backend in
+`internal/probe/backend.go`. Pick a server with `-server`, matched on any part
+of its name:
+
+```
+go run ./cmd/go-speedtest -provider librespeed -server tokyo -once
+```
+
+When the picker is on LibreSpeed, a second combobox appears beside it with the
+server list.
+
+### What a LibreSpeed run does differently
+
+The public LibreSpeed servers are donated bandwidth, not a service built to be
+hammered, so a run against one asks for less: 10 latency samples instead of 30,
+a latency probe every second instead of every half second, and a cap of 100 MB
+per direction instead of 150 MB. The upload payload stops at 4 MB because the
+sink is a PHP script and some of the servers refuse a larger request body.
+
+A server that has been asked for too much in a short window starts answering 403
+to everything. The app reads that as a refusal rather than a permissions problem
+and says so. Wait a minute, or pick another server.
+
+Most of these servers have no IP database behind them, so they cannot say where
+you are. When that happens the map shows the server pin alone, with no line.
 
 To see the app with no network, run this command:
 
@@ -101,6 +151,11 @@ shows an error in the title bar. It does not stop the app.
 
 The datacenter table in `internal/probe/colo.go` is partial. Cloudflare runs in
 more than 300 cities. An unknown code still prints, but the map skips that pin.
+
+The LibreSpeed server list in `internal/probe/librespeed.go` is a snapshot, for
+the same reason: the published list carries no coordinates, so the map pin needs
+a hand-written table either way. A server that goes away is a failed run, not a
+crash. Pick another one.
 
 ## Layout of the source
 

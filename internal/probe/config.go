@@ -19,9 +19,19 @@ const DefaultUserAgent = "go-speedtest/0.1 (+https://github.com/go-gui-org/go-sp
 // Config holds everything a run needs. The zero value is usable: New
 // fills in defaults.
 type Config struct {
-	// BaseURL is the speed test origin. Overridden by tests with an
-	// httptest server.
+	// Backend is the wire protocol to speak. The zero value is
+	// Cloudflare's, which is what this app started with.
+	Backend Backend
+
+	// BaseURL is the speed test origin. Read by the Cloudflare
+	// backend, which hangs its fixed paths off it, and overridden by
+	// tests with an httptest server. Ignored by LibreSpeed, which
+	// carries its origin on Server instead.
 	BaseURL string
+
+	// Server is the LibreSpeed backend to talk to: an origin, its four
+	// endpoint paths, and where it is. Ignored by every other backend.
+	Server Server
 
 	// Client is the HTTP client for every request. When nil, New builds
 	// one that disables compression, because a compressible payload
@@ -34,6 +44,15 @@ type Config struct {
 	// LatencySamples is how many round trips to time. Defaults to 30 —
 	// enough for a stable p95 and for the histogram to have a shape.
 	LatencySamples int
+
+	// LoadedRTTInterval is how often a latency sample is taken while a
+	// transfer is running. Idle latency on its own says little: what
+	// makes a link feel slow is what happens to latency when the link
+	// is busy, so the download and upload phases are sampled too and
+	// the box plot compares the three. Defaults to 500ms, which is
+	// frequent enough to fill a box over a phase and sparse enough
+	// that the probe itself is not the load.
+	LoadedRTTInterval time.Duration
 
 	// DownStages and UpStages are payload sizes in bytes, run in order.
 	// Small first: the early stages warm the connection while the chart
@@ -87,7 +106,10 @@ var (
 
 // withDefaults returns a copy of cfg with every unset field filled.
 func (cfg Config) withDefaults() Config {
-	if cfg.BaseURL == "" {
+	// Only the Cloudflare backend has a meaningful default origin.
+	// Filling one in for LibreSpeed would hide a missing server
+	// selection behind requests to the wrong host.
+	if cfg.BaseURL == "" && cfg.Backend == BackendCloudflare {
 		cfg.BaseURL = DefaultBaseURL
 	}
 	if cfg.UserAgent == "" {
@@ -101,6 +123,9 @@ func (cfg Config) withDefaults() Config {
 	}
 	if cfg.LatencySamples > 1000 {
 		cfg.LatencySamples = 1000
+	}
+	if cfg.LoadedRTTInterval <= 0 {
+		cfg.LoadedRTTInterval = 500 * time.Millisecond
 	}
 	if cfg.MinPhaseDuration <= 0 {
 		cfg.MinPhaseDuration = 8 * time.Second

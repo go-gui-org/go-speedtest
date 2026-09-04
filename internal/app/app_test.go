@@ -2,59 +2,62 @@ package app
 
 import (
 	"math"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/go-gui-org/go-charts/series"
+	"github.com/go-gui-org/go-gui/gui"
 	"github.com/go-gui-org/go-map/projection"
 	"github.com/go-gui-org/go-speedtest/internal/probe"
 )
 
-func TestGaugeScaleClimbsAndNeverClips(t *testing.T) {
-	cases := []struct {
-		peak float64
-		want float64
-	}{
-		{0, 25},
-		{20, 25},
-		{23, 50},  // 23 > 25*0.9, so step up
-		{47, 100}, // 47 > 50*0.9
-		{95, 250}, // 95 > 100*0.9
-		{940, 2500},
-		{9000, 5000},
+func TestGaugeRangeSwitchesAtGigabit(t *testing.T) {
+	// The base range counts in Mbps and reads the value straight.
+	top, div, unit, _ := gaugeRange(&State{})
+	if top != gaugeMax || div != 1 || unit != "Mbps" {
+		t.Errorf("base range = (%v, %v, %q)", top, div, unit)
 	}
-	for _, c := range cases {
-		s := &State{PeakDown: c.peak}
-		if got := gaugeScale(s); got != c.want {
-			t.Errorf("gaugeScale(peak=%v) = %v, want %v", c.peak, got, c.want)
-		}
+
+	// The gigabit range counts in Gbps, so the divisor must turn a
+	// reading in Mbps into a number the dial's own scale accepts.
+	top, div, unit, _ = gaugeRange(&State{HighRange: true})
+	if top != gaugeMaxGbps || unit != "Gbps" {
+		t.Errorf("high range = (%v, %q)", top, unit)
+	}
+	if got := 2500 / div; got != 2.5 {
+		t.Errorf("2500 Mbps on the gigabit dial = %v, want 2.5", got)
+	}
+	if gaugeMax/div > top {
+		t.Error("the switching point must fall on the gigabit dial")
 	}
 }
 
-func TestGaugeScaleAlwaysLeavesHeadroom(t *testing.T) {
-	// The needle must never sit at or past the end of the arc, or it
-	// reads as "off the scale" for a perfectly normal link.
-	for peak := 1.0; peak < 3000; peak *= 1.13 {
-		s := &State{PeakDown: peak}
-		if scale := gaugeScale(s); scale <= peak {
-			t.Fatalf("peak %v exceeds scale %v", peak, scale)
-		}
+func TestGaugeScaleIsFixed(t *testing.T) {
+	// The dial is fixed at 0..gaugeMax so a needle angle means the same
+	// speed in every run. The zone thresholds must stay inside it, or
+	// go-charts rejects the config.
+	if gaugeMax <= 0 {
+		t.Fatalf("gaugeMax = %v", gaugeMax)
+	}
+	if gaugeMax*0.6 >= gaugeMax {
+		t.Error("zone thresholds must ascend below the maximum")
 	}
 }
 
 func TestGaugeValueFollowsPhase(t *testing.T) {
-	s := &State{Phase: probe.PhaseUpload, Live: 42}
+	s := &State{Phase: probe.PhaseUpload, LiveUp: 42}
 	if v, c := gaugeValue(s); v != 42 || c != colorUp {
 		t.Errorf("upload phase = (%v, %v), want (42, colorUp)", v, c)
 	}
 
-	s = &State{Phase: probe.PhaseDownload, Live: 300}
+	s = &State{Phase: probe.PhaseDownload, LiveDown: 300}
 	if v, c := gaugeValue(s); v != 300 || c != colorDown {
 		t.Errorf("download phase = (%v, %v)", v, c)
 	}
 
 	// A finished run shows its headline figure, not the last live
-	// reading, which is zero by then.
+	// reading, which the filter leaves short of the mean.
 	s = &State{Phase: probe.PhaseDone, Result: &probe.Result{DownMbps: 512}}
 	if v, _ := gaugeValue(s); v != 512 {
 		t.Errorf("finished run = %v, want 512", v)
@@ -181,18 +184,24 @@ func TestGreatCircleDegenerate(t *testing.T) {
 
 func TestResetClearsPreviousRun(t *testing.T) {
 	s := New(true, time.Minute, nil)
-	s.RTTms = append(s.RTTms, 12, 13)
+	s.RTTIdle.add(0.1, 12)
+	s.RTTIdle.add(0.2, 13)
+	s.RTTDown.add(3, 90)
+	s.RTTDown.add(3.5, 95)
 	s.Down.Append(series.Point{X: 1, Y: 100})
 	s.Trace = &probe.Trace{Colo: "SEA"}
 	s.Result = &probe.Result{DownMbps: 9}
 	s.Err = errTest{}
-	s.PeakDown = 400
+	s.LiveDown = 400
 	s.mapFitted = true
 
 	s.reset()
 
-	if len(s.RTTms) != 0 {
-		t.Errorf("RTTms not cleared: %v", s.RTTms)
+	if s.RTTIdle.len() != 0 || len(s.RTTIdle.Pts) != 0 {
+		t.Errorf("idle samples not cleared: %v", s.RTTIdle.Vals)
+	}
+	if s.RTTDown.len() != 0 || len(s.RTTDown.Pts) != 0 {
+		t.Errorf("loaded samples not cleared: %v", s.RTTDown.Vals)
 	}
 	if n := len(s.Down.Snapshot().Points); n != 0 {
 		t.Errorf("download series not cleared: %d points", n)
@@ -200,41 +209,59 @@ func TestResetClearsPreviousRun(t *testing.T) {
 	if s.Trace != nil || s.Result != nil || s.Err != nil {
 		t.Error("previous run's results survived reset")
 	}
-	if s.PeakDown != 0 {
-		t.Errorf("PeakDown = %v", s.PeakDown)
+	if s.LiveDown != 0 {
+		t.Errorf("LiveDown = %v", s.LiveDown)
 	}
 	if s.mapFitted {
 		t.Error("mapFitted survived reset; the map would not reframe")
 	}
 }
 
-func TestCancelLifecycle(t *testing.T) {
+func TestRunLifecycle(t *testing.T) {
 	s := New(true, time.Minute, nil)
 	if s.Running() {
 		t.Fatal("new state reports a run in progress")
 	}
 
-	stopped := false
-	s.setCancel(func() { stopped = true })
+	ctx, gen := s.beginRun()
 	if !s.Running() {
-		t.Fatal("setCancel did not mark the run running")
+		t.Fatal("beginRun did not mark the run running")
+	}
+	if !s.isCurrentRun(gen) {
+		t.Fatal("the run beginRun started is not the current one")
 	}
 
 	// A second Start must cancel the first, or the old run keeps
 	// writing into the series behind the new one.
-	s.setCancel(func() {})
-	if !stopped {
-		t.Error("replacing the canceller did not cancel the previous run")
+	_, gen2 := s.beginRun()
+	if ctx.Err() == nil {
+		t.Error("starting a second run did not cancel the first")
+	}
+	if s.isCurrentRun(gen) {
+		t.Error("the replaced run is still current; its events would land")
+	}
+	if !s.isCurrentRun(gen2) {
+		t.Error("the new run is not current")
 	}
 
-	if !s.clearCancel() {
-		t.Error("clearCancel reported nothing to cancel")
+	// A late finish from the run that was replaced must not clear the
+	// canceller of the run that replaced it.
+	s.finishRun(gen)
+	if !s.Running() {
+		t.Error("a retired run's finish stopped the current one")
+	}
+
+	if !s.endRun() {
+		t.Error("endRun reported nothing to cancel")
 	}
 	if s.Running() {
-		t.Error("still running after clearCancel")
+		t.Error("still running after endRun")
 	}
-	if s.clearCancel() {
-		t.Error("clearCancel reported a second cancellation")
+	if s.isCurrentRun(gen2) {
+		t.Error("a stopped run is still current; its buffered events would land")
+	}
+	if s.endRun() {
+		t.Error("endRun reported a second cancellation")
 	}
 }
 
@@ -257,10 +284,32 @@ func TestHardenedAppHelpers(t *testing.T) {
 	if got := liveWindow(-3); got != minLiveSeconds {
 		t.Errorf("liveWindow(-3) = %v, want %v", got, minLiveSeconds)
 	}
-	// gaugeScale must not propagate NaN into zone thresholds.
-	s := &State{PeakDown: math.NaN()}
-	if got := gaugeScale(s); got != 25 {
-		t.Errorf("gaugeScale(NaN) = %v, want 25", got)
+	// A NaN/Inf/negative/huge reading must not poison the dial's filter.
+	if got := smoothLive(100, math.NaN()); got != 100 {
+		t.Errorf("smoothLive(100, NaN) = %v, want 100", got)
+	}
+	if got := smoothLive(100, math.Inf(1)); got != 100 {
+		t.Errorf("smoothLive(100, +Inf) = %v, want 100", got)
+	}
+	if got := smoothLive(100, -5); got != 100 {
+		t.Errorf("smoothLive(100, -5) = %v, want 100", got)
+	}
+	if got := smoothLive(100, 2e6); got != 100 {
+		t.Errorf("smoothLive(100, 2e6) = %v, want 100", got)
+	}
+	// bounds must skip Inf, not just NaN, otherwise boxYAxis gets Inf domain.
+	if lo, hi := bounds([]float64{math.Inf(1), 5, 10, math.Inf(-1)}); lo != 5 || hi != 10 {
+		t.Errorf("bounds(Inf,5,10,Inf) = %v,%v want 5,10", lo, hi)
+	}
+	if lo, hi := bounds([]float64{math.Inf(1), math.Inf(-1)}); lo != 0 || hi != 1 {
+		t.Errorf("bounds(all Inf) = %v,%v want 0,1", lo, hi)
+	}
+	// mbpsTick near-integer due to floating error must still format as integer.
+	if got := mbpsTick(99.9999999998); got != "100" {
+		t.Errorf("mbpsTick(99.9999999998) = %q, want 100", got)
+	}
+	if got := mbpsTick(100.0000000002); got != "100" {
+		t.Errorf("mbpsTick(100.0000000002) = %q, want 100", got)
 	}
 	// boundsOf on empty must not panic.
 	if got := boundsOf(nil); got.NE.Lat != 0 || got.SW.Lat != 0 {
@@ -305,3 +354,191 @@ func assertNear(t *testing.T, got, want projection.LatLng, what string) {
 type errTest struct{}
 
 func (errTest) Error() string { return "boom" }
+
+func TestConnectionFieldsFormat(t *testing.T) {
+	// The family comes from the address itself: a colon can only
+	// appear in an IPv6 literal.
+	for ip, want := range map[string]string{
+		"203.0.113.7":  "IPv4",
+		"2606:4700::1": "IPv6",
+		"":             "—",
+	} {
+		if got := ipFamily(ip); got != want {
+			t.Errorf("ipFamily(%q) = %q, want %q", ip, got, want)
+		}
+	}
+
+	// A datacenter shows its city and its code together; a code we
+	// cannot name still shows, because the code alone is useful.
+	full := &probe.Trace{Colo: "SEA", ColoCity: "Seattle"}
+	if got := coloPlace(full); got != "Seattle (SEA)" {
+		t.Errorf("coloPlace = %q", got)
+	}
+	if got := coloPlace(&probe.Trace{Colo: "ZZZ"}); got != "ZZZ" {
+		t.Errorf("coloPlace(unknown) = %q", got)
+	}
+	if got := coloPlace(&probe.Trace{}); got != "—" {
+		t.Errorf("coloPlace(empty) = %q", got)
+	}
+
+	// The network line must survive a meta call that never answered,
+	// which is the common case on a locked-down network.
+	if got := networkName(&probe.Trace{}); got != "—" {
+		t.Errorf("networkName(empty) = %q", got)
+	}
+	if got := networkName(&probe.Trace{ASN: 64512}); got != "AS64512" {
+		t.Errorf("networkName(asn only) = %q", got)
+	}
+	if got := networkName(&probe.Trace{ASOrg: "EXAMPLE NET"}); got != "EXAMPLE NET" {
+		t.Errorf("networkName(org only) = %q", got)
+	}
+	want := "EXAMPLE NET  (AS64512)"
+	if got := networkName(&probe.Trace{ASOrg: "EXAMPLE NET", ASN: 64512}); got != want {
+		t.Errorf("networkName = %q, want %q", got, want)
+	}
+}
+
+func TestMbpsTickKeepsOneScale(t *testing.T) {
+	// Whole ticks must not gain a decimal the neighbouring tick lacks:
+	// that is what made an axis read 140, 120, 100, 80.0, 60.0.
+	for v, want := range map[float64]string{
+		0: "0", 20: "20", 140: "140", 2.5: "2.5",
+	} {
+		if got := mbpsTick(v); got != want {
+			t.Errorf("mbpsTick(%v) = %q, want %q", v, got, want)
+		}
+	}
+}
+
+func TestSelectProvider(t *testing.T) {
+	s := New(false, time.Minute, nil)
+	if got := s.Provider().Name; got != "Cloudflare" {
+		t.Fatalf("default provider = %q, want Cloudflare", got)
+	}
+
+	if err := s.SelectProvider(probe.Selection{Provider: "demo"}); err != nil {
+		t.Fatalf("SelectProvider(demo) = %v", err)
+	}
+	if !s.Provider().Simulate {
+		t.Error("demo provider does not simulate")
+	}
+
+	// A custom entry with no URL is refused, and the refusal must not
+	// move the selection: a failed switch leaves the app on the
+	// provider it was already using.
+	before := s.ProviderIdx
+	if err := s.SelectProvider(probe.Selection{Provider: "custom"}); err == nil {
+		t.Error("SelectProvider(custom, \"\") = nil, want an error")
+	}
+	if s.ProviderIdx != before {
+		t.Errorf("failed switch moved the selection to %d", s.ProviderIdx)
+	}
+
+	if err := s.SelectProvider(probe.Selection{
+		Provider: "custom", CustomURL: "https://h.example",
+	}); err != nil {
+		t.Fatalf("SelectProvider(custom, url) = %v", err)
+	}
+	cfg := s.Provider().Apply(probe.Config{}, s.CustomURL, s.ServerIdx)
+	if cfg.BaseURL != "https://h.example" || cfg.Simulate {
+		t.Errorf("custom applied to %+v", cfg)
+	}
+
+	if err := s.SelectProvider(probe.Selection{Provider: "nonesuch"}); err == nil {
+		t.Error("SelectProvider(nonesuch) = nil, want an error")
+	}
+}
+
+func TestSelectLibreSpeedServer(t *testing.T) {
+	s := New(false, time.Minute, nil)
+	if err := s.SelectProvider(probe.Selection{
+		Provider: "libre", Server: "tokyo",
+	}); err != nil {
+		t.Fatalf("SelectProvider(libre, tokyo) = %v", err)
+	}
+	if !strings.Contains(strings.ToLower(s.Server().Name), "tokyo") {
+		t.Errorf("selected server %q, want a Tokyo one", s.Server().Name)
+	}
+
+	// Switching to a provider with no list must leave Server() harmless
+	// rather than indexing the old list.
+	s.ProviderIdx, s.ServerIdx = probe.DemoProvider, 5
+	if got := s.Server(); got.Name != "" {
+		t.Errorf("Server() on a listless provider = %+v", got)
+	}
+}
+
+func TestNewDemoSelectsTheOfflineProvider(t *testing.T) {
+	if got := New(true, time.Minute, nil).Provider().Name; got != "Demo (offline)" {
+		t.Errorf("New(demo) provider = %q, want Demo (offline)", got)
+	}
+}
+
+// TestPumpIgnoresARetiredRun reproduces the chart filling backwards.
+//
+// Starting a second test replaces the first, but the first engine's
+// channel still holds events, and its pump goroutine drains them after
+// the swap. Those events carry the old run's clock — eighteen seconds
+// in, where the new run is at zero — so appending them put points to
+// the right of everything the new run had drawn.
+func TestPumpIgnoresARetiredRun(t *testing.T) {
+	s := New(true, time.Minute, nil)
+	w := &gui.Window{}
+
+	_, gen := s.beginRun()
+	// What pressing Start a second time does.
+	_, _ = s.beginRun()
+	s.reset()
+
+	events := make(chan probe.Event, 4)
+	events <- probe.Event{Kind: probe.EventRate, Phase: probe.PhaseDownload, Mbps: 100}
+	events <- probe.Event{Kind: probe.EventRate, Phase: probe.PhaseUpload, Mbps: 50}
+	close(events)
+	// The old run's clock: eighteen seconds ahead of the new one.
+	pump(w, s, events, time.Now().Add(-18*time.Second), gen)
+
+	if n := len(s.Down.Snapshot().Points); n != 0 {
+		t.Errorf("a retired run appended %d points to the new chart", n)
+	}
+	if n := len(s.Up.Snapshot().Points); n != 0 {
+		t.Errorf("a retired run appended %d upload points", n)
+	}
+}
+
+// The same pump, still current, must publish normally.
+func TestPumpAppendsForTheCurrentRun(t *testing.T) {
+	s := New(true, time.Minute, nil)
+	w := &gui.Window{}
+
+	_, gen := s.beginRun()
+	s.reset()
+
+	events := make(chan probe.Event, 2)
+	events <- probe.Event{Kind: probe.EventRate, Phase: probe.PhaseDownload, Mbps: 100}
+	close(events)
+	pump(w, s, events, time.Now(), gen)
+
+	if n := len(s.Down.Snapshot().Points); n != 1 {
+		t.Errorf("current run appended %d points, want 1", n)
+	}
+}
+
+// A stopped run must go quiet too: Stop cancels, but the engine's
+// buffered events are still behind it.
+func TestPumpIgnoresAStoppedRun(t *testing.T) {
+	s := New(true, time.Minute, nil)
+	w := &gui.Window{}
+
+	_, gen := s.beginRun()
+	s.reset()
+	s.endRun()
+
+	events := make(chan probe.Event, 2)
+	events <- probe.Event{Kind: probe.EventRate, Phase: probe.PhaseDownload, Mbps: 100}
+	close(events)
+	pump(w, s, events, time.Now(), gen)
+
+	if n := len(s.Down.Snapshot().Points); n != 0 {
+		t.Errorf("a stopped run appended %d points", n)
+	}
+}

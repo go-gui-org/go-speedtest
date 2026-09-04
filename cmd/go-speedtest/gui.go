@@ -8,14 +8,20 @@ import (
 	"github.com/go-gui-org/go-gui/gui/backend"
 	"github.com/go-gui-org/go-map/tile"
 	"github.com/go-gui-org/go-speedtest/internal/app"
+	"github.com/go-gui-org/go-speedtest/internal/probe"
 )
 
 // runGUI opens the dashboard and blocks until the window closes.
-func runGUI(ctx context.Context, demo bool, timeout time.Duration, autostart bool) error {
+func runGUI(ctx context.Context, sel probe.Selection,
+	timeout time.Duration, autostart bool,
+) error {
 	gui.SetTheme(gui.ThemeDark)
 
 	src := app.TileSource()
-	st := app.New(demo, timeout, src)
+	st := app.New(false, timeout, src)
+	if err := st.SelectProvider(sel); err != nil {
+		return err
+	}
 
 	cfg := gui.WindowCfg{
 		State:  st,

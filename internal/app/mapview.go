@@ -23,6 +23,13 @@ const (
 	overlayLink   = "link"
 )
 
+// singlePinZoom frames one pin with its region around it: close enough
+// that the city is recognisable, far enough that the pin is placed in a
+// country rather than on a street. The coordinates behind it are a city
+// centre or a country centroid, so anything closer would claim a
+// precision the data does not have.
+const singlePinZoom = 5
+
 // arcSegments is how many points the great-circle link is sampled at.
 // go-map draws straight segments between vertices, so the curve is
 // this sampling; 48 is smooth at any zoom the app uses.
@@ -31,36 +38,52 @@ const arcSegments = 48
 // TileSource is the map's tile provider, built once in main and shared
 // with the window so the HTTP fetcher carries the same identifying
 // user agent. OSM's tile policy requires that.
+//
+// The tiles are re-toned on the way in; see darkTiles.
 func TileSource() tile.Source {
-	return tile.OSMWithUserAgent(probe.DefaultUserAgent)
+	return darkTiles{Source: tile.OSMWithUserAgent(probe.DefaultUserAgent)}
 }
 
 // mapPanel is the map card: where the traffic went.
 func mapPanel(s *State) gui.View {
-	theme := gui.CurrentTheme()
+	cfg := cardChrome()
+	cfg.Sizing = gui.FixedFill
+	cfg.Width = mapPanelWidth
+	cfg.Padding = gui.NewPadding(8, 10, 8, 10)
+	cfg.Spacing = gui.SomeF(4)
+	cfg.Content = []gui.View{
+		panelTitle(mapTitle(s), colorUp),
+		mapview.Map(mapview.Cfg{
+			ID:        mapID,
+			Sizing:    gui.FillFill,
+			Focusable: true,
+			Source:    s.Tiles,
+			// A world view until the trace lands, at which point
+			// applyTrace frames the two pins.
+			InitialCenter: projection.LatLng{Lat: 20, Lng: 0},
+			InitialZoom:   1,
+			// What shows through before a tile arrives. Left at the
+			// default it was a pale flash on every pan; matching the
+			// re-toned tiles means a missing one reads as empty rather
+			// than as a hole.
+			Background: mix(gui.CurrentTheme().ColorPanel, colorDown, 0.05),
+			A11YLabel:  "Map of the route to the serving datacenter",
+		}),
+	}
+	return gui.Column(cfg)
+}
 
-	return gui.Column(gui.ContainerCfg{
-		Sizing:  gui.FixedFill,
-		Width:   mapPanelWidth,
-		Color:   theme.ColorPanel,
-		Radius:  gui.SomeF(theme.RadiusSmall),
-		Padding: gui.NewPadding(8, 10, 8, 10),
-		Spacing: gui.SomeF(4),
-		Content: []gui.View{
-			gui.Text(gui.TextCfg{Text: mapTitle(s), TextStyle: theme.TextStyleLabel}),
-			mapview.Map(mapview.Cfg{
-				ID:        mapID,
-				Sizing:    gui.FillFill,
-				Focusable: true,
-				Source:    s.Tiles,
-				// A world view until the trace lands, at which point
-				// applyTrace frames the two pins.
-				InitialCenter: projection.LatLng{Lat: 20, Lng: 0},
-				InitialZoom:   1,
-				A11YLabel:     "Map of the route to the serving datacenter",
-			}),
-		},
-	})
+// coloLabel names the far end: the city, with Cloudflare's datacenter
+// code in brackets when there is one. A LibreSpeed server has no such
+// code, so it gets the city alone.
+func coloLabel(t *probe.Trace) string {
+	if t.ColoCity != "" && t.Colo != "" {
+		return t.ColoCity + " (" + t.Colo + ")"
+	}
+	if t.ColoCity != "" {
+		return t.ColoCity
+	}
+	return t.Colo
 }
 
 // mapTitle names what the map is showing, which changes as the run
@@ -112,9 +135,11 @@ func applyTrace(w *gui.Window, tr *probe.Trace) {
 			MarkerID: overlayColo,
 			Pos:      colo,
 			Label:    "Serving datacenter " + tr.ColoCity,
-			Title:    tr.ColoCity + " (" + tr.Colo + ")",
-			Body:     "The Cloudflare edge that answered this test",
-			Color:    colorDown,
+			Title:    coloLabel(tr),
+			// Deliberately not "the Cloudflare edge": the same pin
+			// now marks a LibreSpeed server too.
+			Body:  "The server that answered this test",
+			Color: colorDown,
 		})
 	}
 
@@ -133,7 +158,19 @@ func applyTrace(w *gui.Window, tr *probe.Trace) {
 	if !s.mapFitted && len(pts) > 0 {
 		cw, ch, ok := mapview.CanvasSize(w, mapID)
 		if ok {
-			mapview.FitBounds(w, mapID, boundsOf(pts), 48, cw, ch)
+			if len(pts) == 1 {
+				// One pin has no extent, and FitBounds on a zero-sized
+				// box zooms all the way in — past the tile server's
+				// maximum, so every tile request comes back 400 and the
+				// card draws empty. A fixed regional zoom instead.
+				//
+				// This is the normal case for a LibreSpeed run: most of
+				// the public servers have no IP database behind them,
+				// so there is no client pin to pair with the server.
+				mapview.SetView(w, mapID, pts[0], singlePinZoom)
+			} else {
+				mapview.FitBounds(w, mapID, boundsOf(pts), 48, cw, ch)
+			}
 			s.mapFitted = true
 		}
 	}

@@ -8,8 +8,8 @@ github.com/dlclark/regexp2/v2 v2.2.2 h1:MYWvNYw8okuqNhwTYO587EZMiDruVa2vhV6fsGpf
 github.com/dlclark/regexp2/v2 v2.2.2/go.mod h1:avUrQvPaLz2DrFNHJF0taWAFFX2C1GMSSoeiqFjcBmU=
 github.com/ebitengine/purego v0.10.2 h1:W809HbnvzAxgdm+aOvlSekrM16wGCdT/e76+9tS7gzE=
 github.com/ebitengine/purego v0.10.2/go.mod h1:iIjxzd6CiRiOG0UyXP+V1+jWqUXVjPKLAI0mRfJZTmQ=
-github.com/go-gui-org/go-charts v0.6.0 h1:EkSn7ofV7qyPk/qnZHxok3T4HchNg+596W+LDotruZ4=
-github.com/go-gui-org/go-charts v0.6.0/go.mod h1:/X85AUs8RRFJdZ6S0PAwcXivcG474DEXv4M5IhTd7Gg=
+github.com/go-gui-org/go-charts v0.7.0 h1:UaxUNePZWmqitwJ5alLGaJdEgLIFTBy/8TWrUA4Pgbk=
+github.com/go-gui-org/go-charts v0.7.0/go.mod h1:/X85AUs8RRFJdZ6S0PAwcXivcG474DEXv4M5IhTd7Gg=
 github.com/go-gui-org/go-glyph v1.24.0 h1:McXsveg3yvdKt/gfIiiEkHvdaZWgtIWif5HCowdjmpo=
 github.com/go-gui-org/go-glyph v1.24.0/go.mod h1:Lx2KYrLee8t34mX/ZvjUcxN+sHhwFPVF4fcXe6wkRX0=
 github.com/go-gui-org/go-gui v0.66.1 h1:deE4euRMA09inuY62XeJNCWrU2p2igT5J7medpE1hBo=

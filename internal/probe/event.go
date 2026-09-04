@@ -77,6 +77,21 @@ type Trace struct {
 	// is deliberately coarse: no geo-IP lookup, no third-party service.
 	ClientLat, ClientLng float64
 	ClientKnown          bool
+
+	// ASN and ASOrg name the network the client is connected through,
+	// as the edge sees it. Zero and empty when the meta call did not
+	// answer, which is not an error: see fetchMeta.
+	ASN   int
+	ASOrg string
+
+	// City and Region are the client's approximate location, reported
+	// by the edge rather than looked up here. Empty when unknown.
+	City, Region string
+
+	// HTTPProtocol is what the transfers actually negotiated, for
+	// example "HTTP/2". A run over HTTP/1.1 measures a different thing
+	// from a run over HTTP/3, so it is worth showing.
+	HTTPProtocol string
 }
 
 // Result is the summary of a finished run. The UI keeps it for the
@@ -87,6 +102,13 @@ type Result struct {
 	// RTTs holds every latency sample in collection order. The box plot
 	// and histogram take this slice raw.
 	RTTs []time.Duration
+
+	// DownRTTs and UpRTTs hold the latency samples taken while each
+	// transfer was running. Compared against RTTs they are the
+	// bufferbloat reading: how far latency rises once the link is
+	// busy. Empty when a phase was skipped or never got a sample back.
+	DownRTTs []time.Duration
+	UpRTTs   []time.Duration
 
 	// DownMbps and UpMbps are the headline numbers: the 90th percentile
 	// of instantaneous readings, which is closer to what a user

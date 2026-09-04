@@ -23,8 +23,15 @@ const (
 	simDownPeak = 465.0 // Mbps plateau
 	simUpPeak   = 118.0 // Mbps plateau
 	simBaseRTT  = 24 * time.Millisecond
-	simDownTime = 10 * time.Second
-	simUpTime   = 10 * time.Second
+	// How far latency climbs, in milliseconds, once each direction is
+	// saturated. The upstream buffer is the small one on a typical
+	// consumer line, so uploading hurts more.
+	simDownBloat = 55.0
+	simUpBloat   = 130.0
+	// Spacing of the simulated loaded samples.
+	simLoadedRTTInterval = 500 * time.Millisecond
+	simDownTime          = 10 * time.Second
+	simUpTime            = 10 * time.Second
 )
 
 // runSimulated plays a scripted run against the clock.
@@ -40,7 +47,13 @@ func (e *Engine) runSimulated(ctx context.Context, emit func(Event)) {
 	if !simSleep(ctx, scaled(350*time.Millisecond, scale)) {
 		return
 	}
-	tr := &Trace{Colo: "SEA", IP: "203.0.113.7", Loc: "US"}
+	// Documentation-range address and a made-up network, so a demo
+	// screenshot never shows a real subscriber's details.
+	tr := &Trace{
+		Colo: "SEA", IP: "203.0.113.7", Loc: "US",
+		ASN: 64512, ASOrg: "EXAMPLE VALLEY BROADBAND COOPERATIVE",
+		City: "Peosta", Region: "Iowa", HTTPProtocol: "HTTP/2",
+	}
 	resolveLocations(tr)
 	res.Trace = *tr
 	emit(Event{Kind: EventTrace, Phase: PhaseTrace, Trace: tr})
@@ -72,7 +85,8 @@ func (e *Engine) runSimulated(ctx context.Context, emit func(Event)) {
 
 	// Download and upload: a ramp into a noisy plateau.
 	emit(Event{Kind: EventPhase, Phase: PhaseDownload})
-	downReadings, downBytes := simTransfer(ctx, emit, rng, PhaseDownload, simDownPeak, simDownTime, scale)
+	downReadings, downBytes, downRTTs := simTransfer(ctx, emit, rng, PhaseDownload, simDownPeak, simDownTime, scale)
+	res.DownRTTs = downRTTs
 	res.DownBytes = downBytes
 	res.DownMbps = headline(downReadings)
 	if contextDone(ctx) {
@@ -80,7 +94,8 @@ func (e *Engine) runSimulated(ctx context.Context, emit func(Event)) {
 	}
 
 	emit(Event{Kind: EventPhase, Phase: PhaseUpload})
-	upReadings, upBytes := simTransfer(ctx, emit, rng, PhaseUpload, simUpPeak, simUpTime, scale)
+	upReadings, upBytes, upRTTs := simTransfer(ctx, emit, rng, PhaseUpload, simUpPeak, simUpTime, scale)
+	res.UpRTTs = upRTTs
 	res.UpBytes = upBytes
 	// The generator produces honest readings by construction — there is
 	// no socket buffer to hide behind — so the same percentile rule the
@@ -98,21 +113,38 @@ func (e *Engine) runSimulated(ctx context.Context, emit func(Event)) {
 // simTransfer emits rate events for one direction over the given
 // duration, then a stage event, and returns the readings and the byte
 // total they imply.
-func simTransfer(ctx context.Context, emit func(Event), rng *rand.Rand, phase Phase, peak float64, dur time.Duration, scale float64) ([]float64, int64) {
+func simTransfer(ctx context.Context, emit func(Event), rng *rand.Rand, phase Phase, peak float64, dur time.Duration, scale float64) ([]float64, int64, []time.Duration) {
 	tick := scaled(rateInterval, scale)
 	dur = scaled(dur, scale)
 	var (
 		readings []float64
+		rtts     []time.Duration
 		bytes    float64
 		start    = time.Now()
+		// Loaded samples come every few rate ticks, which puts them
+		// about half a second apart, the same spacing the real
+		// sampler uses.
+		rttEvery = int(simLoadedRTTInterval / rateInterval)
+		ticks    int
 	)
 	for {
 		if !simSleep(ctx, tick) {
-			return readings, int64(bytes)
+			return readings, int64(bytes), rtts
 		}
 		elapsed := time.Since(start)
 		if elapsed >= dur {
 			break
+		}
+		ticks++
+		if rttEvery > 0 && ticks%rttEvery == 0 {
+			rtt := simLoadedRTT(phase, elapsed, dur, rng)
+			rtts = append(rtts, rtt)
+			emit(Event{
+				Kind:    EventRTT,
+				Phase:   phase,
+				Elapsed: elapsed,
+				RTT:     rtt,
+			})
 		}
 
 		mbps := simRate(peak, elapsed, dur, rng)
@@ -133,7 +165,28 @@ func simTransfer(ctx context.Context, emit func(Event), rng *rand.Rand, phase Ph
 		Mbps:    stats.Mean(readings),
 		Bytes:   int64(bytes),
 	})
-	return readings, int64(bytes)
+	return readings, int64(bytes), rtts
+}
+
+// simLoadedRTT models latency while the link is busy: the queue fills
+// as the transfer ramps, so latency climbs off the idle floor and then
+// sits high with more scatter than it had at rest. Upload bloats
+// harder than download, which is the usual shape on a consumer line
+// where the upstream buffer is the small one.
+func simLoadedRTT(phase Phase, elapsed, total time.Duration, rng *rand.Rand) time.Duration {
+	bloat := simDownBloat
+	if phase == PhaseUpload {
+		bloat = simUpBloat
+	}
+	// Same ramp the rate uses, so the queue fills as the transfer
+	// reaches speed rather than the instant it starts.
+	fill := 1 - math.Exp(-5*elapsed.Seconds()/max(total.Seconds()*0.2, 1e-9))
+	ms := float64(simBaseRTT/time.Millisecond) + bloat*fill
+	ms *= 1 + rng.NormFloat64()*0.18
+	if ms < 1 {
+		ms = 1
+	}
+	return time.Duration(ms) * time.Millisecond
 }
 
 // simRate models one instantaneous reading: an exponential ramp into a

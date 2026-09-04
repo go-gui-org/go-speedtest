@@ -6,6 +6,8 @@ package probe
 
 import (
 	"context"
+	"errors"
+	"log/slog"
 	"time"
 
 	"github.com/go-gui-org/go-speedtest/internal/stats"
@@ -59,17 +61,26 @@ func (e *Engine) run(ctx context.Context, emit func(Event)) {
 	started := time.Now()
 	res := &Result{}
 
-	// Phase 1: where are we, and who is answering.
+	// Phase 1: where are we, and who is answering. Which endpoints
+	// that means depends on the provider's protocol, so it goes
+	// through the backend rather than straight to Cloudflare's trace.
 	emit(Event{Kind: EventPhase, Phase: PhaseTrace})
-	tr, err := fetchTrace(ctx, e.cfg)
-	if err != nil {
+	tr, err := e.cfg.resolveBackend().identify(ctx, e.cfg)
+	var cosmetic metaFailed
+	switch {
+	case errors.As(err, &cosmetic):
+		// The trace landed and only the extra detail was lost. That is
+		// a shorter connection panel, not a failed run.
+		slog.Debug("connection detail lookup failed", "err", err)
+	case err != nil:
 		fail(emit, PhaseTrace, err)
 		return
 	}
 	res.Trace = *tr
 	emit(Event{Kind: EventTrace, Phase: PhaseTrace, Trace: tr})
 
-	// Phase 2: latency samples, which feed the box plot and histogram.
+	// Phase 2: idle latency, the baseline the loaded samples in the
+	// transfer phases are compared against.
 	emit(Event{Kind: EventPhase, Phase: PhaseLatency})
 	latStart := time.Now()
 	var lastErr error
@@ -104,9 +115,13 @@ func (e *Engine) run(ctx context.Context, emit func(Event)) {
 		return
 	}
 
-	// Phase 3: download.
+	// Phase 3: download. Latency is sampled throughout: idle latency
+	// next to latency under load is the measurement that says whether
+	// the link is usable while it is busy.
 	emit(Event{Kind: EventPhase, Phase: PhaseDownload})
+	downSampler := startRTTSampler(ctx, e.cfg, PhaseDownload, emit)
 	downReadings, downBytes, err := runDownload(ctx, e.cfg, time.Now(), emit)
+	res.DownRTTs = downSampler.stop()
 	res.DownBytes = downBytes
 	res.DownMbps = headline(downReadings)
 	if err != nil {
@@ -125,7 +140,9 @@ func (e *Engine) run(ctx context.Context, emit func(Event)) {
 
 	// Phase 4: upload.
 	emit(Event{Kind: EventPhase, Phase: PhaseUpload})
+	upSampler := startRTTSampler(ctx, e.cfg, PhaseUpload, emit)
 	_, upBytes, upStages, err := runUpload(ctx, e.cfg, time.Now(), emit)
+	res.UpRTTs = upSampler.stop()
 	res.UpBytes = upBytes
 	res.UpMbps = uploadHeadline(upStages)
 	if err != nil {
