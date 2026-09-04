@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"strings"
 	"time"
 )
 
@@ -64,7 +63,7 @@ func runUpload(ctx context.Context, cfg Config, phaseStart time.Time, emit func(
 
 // uploadOne posts a single payload of the requested size.
 func uploadOne(ctx context.Context, cfg Config, size int64, phaseStart time.Time, phaseSent int64, emit func(Event)) (int64, []float64, stageStat, error) {
-	url := strings.TrimRight(cfg.BaseURL, "/") + "/__up"
+	url := cfg.resolveBackend().uploadURL(cfg)
 
 	body := &progressReader{
 		remaining: size,
@@ -102,7 +101,7 @@ func uploadOne(ctx context.Context, cfg Config, size int64, phaseStart time.Time
 	}
 	_, _ = io.Copy(io.Discard, resp.Body)
 	_ = resp.Body.Close()
-	if resp.StatusCode == http.StatusTooManyRequests {
+	if refused(resp.StatusCode) {
 		return body.sent, body.readings, stageStat{}, ErrRateLimited
 	}
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {

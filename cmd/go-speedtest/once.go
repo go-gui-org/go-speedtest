@@ -18,8 +18,16 @@ import (
 // This mode exists to keep the measurement honest: it exercises exactly
 // the same engine the dashboard does, so a number that looks wrong on
 // screen can be checked without a GUI in the way.
-func runOnce(ctx context.Context, demo bool, timeout time.Duration) error {
-	eng := probe.New(probe.Config{Simulate: demo, Timeout: timeout})
+func runOnce(ctx context.Context, sel probe.Selection,
+	timeout time.Duration,
+) error {
+	// Same resolver the window's picker uses, so the report mode and
+	// the dashboard cannot disagree about what a provider name means.
+	p, _, serverIdx, err := sel.Resolve()
+	if err != nil {
+		return err
+	}
+	eng := probe.New(p.Apply(probe.Config{Timeout: timeout}, sel.CustomURL, serverIdx))
 
 	var (
 		res      *probe.Result
@@ -75,9 +83,16 @@ func printReport(res *probe.Result) {
 	if res.Simulated {
 		line("SIMULATED RUN\tno network was used\n")
 	}
-	line("Datacenter\t%s\n", coloLine(res.Trace))
+	line("Server\t%s\n", coloLine(res.Trace))
 	if res.Trace.IP != "" {
-		line("Client\t%s (%s)\n", res.Trace.IP, res.Trace.Loc)
+		// The country is best effort: most LibreSpeed servers have no
+		// IP database behind them, so the brackets are dropped rather
+		// than printed empty.
+		if res.Trace.Loc != "" {
+			line("Client\t%s (%s)\n", res.Trace.IP, res.Trace.Loc)
+		} else {
+			line("Client\t%s\n", res.Trace.IP)
+		}
 	}
 	line("\t\n")
 	line("Download\t%s Mbps\t(%s transferred)\n",
@@ -99,16 +114,21 @@ func printReport(res *probe.Result) {
 	}
 }
 
-// coloLine describes the serving datacenter as far as we can resolve
-// it. An unknown code still prints: the code itself is useful.
+// coloLine describes the answering host as far as we can resolve it.
+//
+// The bracketed code is Cloudflare's datacenter identifier; a
+// LibreSpeed server has none and prints as its city alone. An
+// unresolved code still prints, because the code itself is useful.
 func coloLine(t probe.Trace) string {
 	switch {
-	case t.Colo == "":
-		return "unknown"
-	case t.ColoKnown:
+	case t.ColoCity != "" && t.Colo != "":
 		return fmt.Sprintf("%s (%s)", t.ColoCity, t.Colo)
-	default:
+	case t.ColoCity != "":
+		return t.ColoCity
+	case t.Colo != "":
 		return t.Colo
+	default:
+		return "unknown"
 	}
 }
 

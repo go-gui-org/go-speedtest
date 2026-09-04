@@ -19,9 +19,19 @@ const DefaultUserAgent = "go-speedtest/0.1 (+https://github.com/go-gui-org/go-sp
 // Config holds everything a run needs. The zero value is usable: New
 // fills in defaults.
 type Config struct {
-	// BaseURL is the speed test origin. Overridden by tests with an
-	// httptest server.
+	// Backend is the wire protocol to speak. The zero value is
+	// Cloudflare's, which is what this app started with.
+	Backend Backend
+
+	// BaseURL is the speed test origin. Read by the Cloudflare
+	// backend, which hangs its fixed paths off it, and overridden by
+	// tests with an httptest server. Ignored by LibreSpeed, which
+	// carries its origin on Server instead.
 	BaseURL string
+
+	// Server is the LibreSpeed backend to talk to: an origin, its four
+	// endpoint paths, and where it is. Ignored by every other backend.
+	Server Server
 
 	// Client is the HTTP client for every request. When nil, New builds
 	// one that disables compression, because a compressible payload
@@ -96,7 +106,10 @@ var (
 
 // withDefaults returns a copy of cfg with every unset field filled.
 func (cfg Config) withDefaults() Config {
-	if cfg.BaseURL == "" {
+	// Only the Cloudflare backend has a meaningful default origin.
+	// Filling one in for LibreSpeed would hide a missing server
+	// selection behind requests to the wrong host.
+	if cfg.BaseURL == "" && cfg.Backend == BackendCloudflare {
 		cfg.BaseURL = DefaultBaseURL
 	}
 	if cfg.UserAgent == "" {

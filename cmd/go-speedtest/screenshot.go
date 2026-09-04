@@ -10,6 +10,7 @@ import (
 	"github.com/go-gui-org/go-gui/gui/backend/soft"
 	"github.com/go-gui-org/go-map/tile"
 	"github.com/go-gui-org/go-speedtest/internal/app"
+	"github.com/go-gui-org/go-speedtest/internal/probe"
 )
 
 // shoot renders the dashboard to a PNG and returns.
@@ -19,11 +20,16 @@ import (
 // window, and no race between the render loop and the sampler. This is
 // how README images are made and how a phase can be inspected without
 // racing the clock.
-func shoot(path string, demo bool, at time.Duration, timeout time.Duration) error {
+func shoot(path string, sel probe.Selection,
+	at time.Duration, timeout time.Duration,
+) error {
 	gui.SetTheme(gui.ThemeDark)
 
 	src := app.TileSource()
-	st := app.New(demo, timeout, src)
+	st := app.New(false, timeout, src)
+	if err := st.SelectProvider(sel); err != nil {
+		return err
+	}
 
 	cfg := gui.WindowCfg{
 		State:  st,

@@ -2,10 +2,12 @@ package app
 
 import (
 	"math"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/go-gui-org/go-charts/series"
+	"github.com/go-gui-org/go-gui/gui"
 	"github.com/go-gui-org/go-map/projection"
 	"github.com/go-gui-org/go-speedtest/internal/probe"
 )
@@ -215,33 +217,51 @@ func TestResetClearsPreviousRun(t *testing.T) {
 	}
 }
 
-func TestCancelLifecycle(t *testing.T) {
+func TestRunLifecycle(t *testing.T) {
 	s := New(true, time.Minute, nil)
 	if s.Running() {
 		t.Fatal("new state reports a run in progress")
 	}
 
-	stopped := false
-	s.setCancel(func() { stopped = true })
+	ctx, gen := s.beginRun()
 	if !s.Running() {
-		t.Fatal("setCancel did not mark the run running")
+		t.Fatal("beginRun did not mark the run running")
+	}
+	if !s.isCurrentRun(gen) {
+		t.Fatal("the run beginRun started is not the current one")
 	}
 
 	// A second Start must cancel the first, or the old run keeps
 	// writing into the series behind the new one.
-	s.setCancel(func() {})
-	if !stopped {
-		t.Error("replacing the canceller did not cancel the previous run")
+	_, gen2 := s.beginRun()
+	if ctx.Err() == nil {
+		t.Error("starting a second run did not cancel the first")
+	}
+	if s.isCurrentRun(gen) {
+		t.Error("the replaced run is still current; its events would land")
+	}
+	if !s.isCurrentRun(gen2) {
+		t.Error("the new run is not current")
 	}
 
-	if !s.clearCancel() {
-		t.Error("clearCancel reported nothing to cancel")
+	// A late finish from the run that was replaced must not clear the
+	// canceller of the run that replaced it.
+	s.finishRun(gen)
+	if !s.Running() {
+		t.Error("a retired run's finish stopped the current one")
+	}
+
+	if !s.endRun() {
+		t.Error("endRun reported nothing to cancel")
 	}
 	if s.Running() {
-		t.Error("still running after clearCancel")
+		t.Error("still running after endRun")
 	}
-	if s.clearCancel() {
-		t.Error("clearCancel reported a second cancellation")
+	if s.isCurrentRun(gen2) {
+		t.Error("a stopped run is still current; its buffered events would land")
+	}
+	if s.endRun() {
+		t.Error("endRun reported a second cancellation")
 	}
 }
 
@@ -387,5 +407,138 @@ func TestMbpsTickKeepsOneScale(t *testing.T) {
 		if got := mbpsTick(v); got != want {
 			t.Errorf("mbpsTick(%v) = %q, want %q", v, got, want)
 		}
+	}
+}
+
+func TestSelectProvider(t *testing.T) {
+	s := New(false, time.Minute, nil)
+	if got := s.Provider().Name; got != "Cloudflare" {
+		t.Fatalf("default provider = %q, want Cloudflare", got)
+	}
+
+	if err := s.SelectProvider(probe.Selection{Provider: "demo"}); err != nil {
+		t.Fatalf("SelectProvider(demo) = %v", err)
+	}
+	if !s.Provider().Simulate {
+		t.Error("demo provider does not simulate")
+	}
+
+	// A custom entry with no URL is refused, and the refusal must not
+	// move the selection: a failed switch leaves the app on the
+	// provider it was already using.
+	before := s.ProviderIdx
+	if err := s.SelectProvider(probe.Selection{Provider: "custom"}); err == nil {
+		t.Error("SelectProvider(custom, \"\") = nil, want an error")
+	}
+	if s.ProviderIdx != before {
+		t.Errorf("failed switch moved the selection to %d", s.ProviderIdx)
+	}
+
+	if err := s.SelectProvider(probe.Selection{
+		Provider: "custom", CustomURL: "https://h.example",
+	}); err != nil {
+		t.Fatalf("SelectProvider(custom, url) = %v", err)
+	}
+	cfg := s.Provider().Apply(probe.Config{}, s.CustomURL, s.ServerIdx)
+	if cfg.BaseURL != "https://h.example" || cfg.Simulate {
+		t.Errorf("custom applied to %+v", cfg)
+	}
+
+	if err := s.SelectProvider(probe.Selection{Provider: "nonesuch"}); err == nil {
+		t.Error("SelectProvider(nonesuch) = nil, want an error")
+	}
+}
+
+func TestSelectLibreSpeedServer(t *testing.T) {
+	s := New(false, time.Minute, nil)
+	if err := s.SelectProvider(probe.Selection{
+		Provider: "libre", Server: "tokyo",
+	}); err != nil {
+		t.Fatalf("SelectProvider(libre, tokyo) = %v", err)
+	}
+	if !strings.Contains(strings.ToLower(s.Server().Name), "tokyo") {
+		t.Errorf("selected server %q, want a Tokyo one", s.Server().Name)
+	}
+
+	// Switching to a provider with no list must leave Server() harmless
+	// rather than indexing the old list.
+	s.ProviderIdx, s.ServerIdx = probe.DemoProvider, 5
+	if got := s.Server(); got.Name != "" {
+		t.Errorf("Server() on a listless provider = %+v", got)
+	}
+}
+
+func TestNewDemoSelectsTheOfflineProvider(t *testing.T) {
+	if got := New(true, time.Minute, nil).Provider().Name; got != "Demo (offline)" {
+		t.Errorf("New(demo) provider = %q, want Demo (offline)", got)
+	}
+}
+
+// TestPumpIgnoresARetiredRun reproduces the chart filling backwards.
+//
+// Starting a second test replaces the first, but the first engine's
+// channel still holds events, and its pump goroutine drains them after
+// the swap. Those events carry the old run's clock — eighteen seconds
+// in, where the new run is at zero — so appending them put points to
+// the right of everything the new run had drawn.
+func TestPumpIgnoresARetiredRun(t *testing.T) {
+	s := New(true, time.Minute, nil)
+	w := &gui.Window{}
+
+	_, gen := s.beginRun()
+	// What pressing Start a second time does.
+	_, _ = s.beginRun()
+	s.reset()
+
+	events := make(chan probe.Event, 4)
+	events <- probe.Event{Kind: probe.EventRate, Phase: probe.PhaseDownload, Mbps: 100}
+	events <- probe.Event{Kind: probe.EventRate, Phase: probe.PhaseUpload, Mbps: 50}
+	close(events)
+	// The old run's clock: eighteen seconds ahead of the new one.
+	pump(w, s, events, time.Now().Add(-18*time.Second), gen)
+
+	if n := len(s.Down.Snapshot().Points); n != 0 {
+		t.Errorf("a retired run appended %d points to the new chart", n)
+	}
+	if n := len(s.Up.Snapshot().Points); n != 0 {
+		t.Errorf("a retired run appended %d upload points", n)
+	}
+}
+
+// The same pump, still current, must publish normally.
+func TestPumpAppendsForTheCurrentRun(t *testing.T) {
+	s := New(true, time.Minute, nil)
+	w := &gui.Window{}
+
+	_, gen := s.beginRun()
+	s.reset()
+
+	events := make(chan probe.Event, 2)
+	events <- probe.Event{Kind: probe.EventRate, Phase: probe.PhaseDownload, Mbps: 100}
+	close(events)
+	pump(w, s, events, time.Now(), gen)
+
+	if n := len(s.Down.Snapshot().Points); n != 1 {
+		t.Errorf("current run appended %d points, want 1", n)
+	}
+}
+
+// A stopped run must go quiet too: Stop cancels, but the engine's
+// buffered events are still behind it.
+func TestPumpIgnoresAStoppedRun(t *testing.T) {
+	s := New(true, time.Minute, nil)
+	w := &gui.Window{}
+
+	_, gen := s.beginRun()
+	s.reset()
+	s.endRun()
+
+	events := make(chan probe.Event, 2)
+	events <- probe.Event{Kind: probe.EventRate, Phase: probe.PhaseDownload, Mbps: 100}
+	close(events)
+	pump(w, s, events, time.Now(), gen)
+
+	if n := len(s.Down.Snapshot().Points); n != 0 {
+		t.Errorf("a stopped run appended %d points", n)
 	}
 }

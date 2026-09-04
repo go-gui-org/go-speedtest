@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"strconv"
-	"strings"
 	"time"
 )
 
@@ -91,7 +89,7 @@ func ladder(stages []int64, minDuration time.Duration, maxBytes int64, phaseStar
 
 // downloadOne fetches a single payload of the requested size.
 func downloadOne(ctx context.Context, cfg Config, size int64, phaseStart time.Time, emit func(Event)) (int64, []float64, error) {
-	url := strings.TrimRight(cfg.BaseURL, "/") + "/__down?bytes=" + strconv.FormatInt(size, 10)
+	url := cfg.resolveBackend().downloadURL(cfg, size)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return 0, nil, err
@@ -106,7 +104,7 @@ func downloadOne(ctx context.Context, cfg Config, size int64, phaseStart time.Ti
 		return 0, nil, fmt.Errorf("download request: %w", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode == http.StatusTooManyRequests {
+	if refused(resp.StatusCode) {
 		return 0, nil, ErrRateLimited
 	}
 	if resp.StatusCode != http.StatusOK {

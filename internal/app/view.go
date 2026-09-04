@@ -106,6 +106,7 @@ func headerView(s *State) gui.View {
 				SizeBorder: gui.NoBorder,
 				Content:    left,
 			}),
+			providerPicker(s),
 			runButton(s),
 		},
 	})
@@ -152,6 +153,124 @@ func headerRule() gui.View {
 	})
 }
 
+// Picker geometry. The provider combobox is wide enough for the
+// longest provider name plus its arrow; the URL field is wide enough
+// for a hostname without being wide enough to crowd the button. The
+// server combobox is wider than both because its entries carry a city,
+// a country and a sponsor.
+const (
+	pickerWidth    float32 = 165
+	customURLWidth float32 = 260
+	serverWidth    float32 = 250
+)
+
+// providerPicker chooses where a run is pointed.
+//
+// It is in the title bar rather than in a settings panel because it
+// changes what the next run measures, which puts it next to the button
+// that starts one. Locked while a run is in flight: switching provider
+// mid-run would leave the numbers on screen belonging to a host the
+// header no longer names.
+//
+// Two entries reveal a second control beside the picker: the custom one
+// a URL field, and a provider that publishes servers a second combobox
+// to choose between them. Both are only built when their provider is
+// selected, so the header stays one control wide for the providers that
+// need no address.
+func providerPicker(s *State) gui.View {
+	running := s.Running()
+	names := make([]string, len(s.Providers))
+	for i, p := range s.Providers {
+		names[i] = p.Name
+	}
+
+	content := []gui.View{
+		gui.Combobox(gui.ComboboxCfg{
+			ID:       "provider",
+			Options:  names,
+			Value:    s.Provider().Name,
+			MinWidth: pickerWidth,
+			MaxWidth: pickerWidth,
+			Disabled: running,
+			A11YCfg:  gui.A11YCfg{A11YLabel: "Speed test provider"},
+			OnSelect: func(name string, ctx gui.EventCtx) {
+				st := state(ctx.Window)
+				for i, p := range st.Providers {
+					if p.Name == name {
+						st.ProviderIdx = i
+						break
+					}
+				}
+				// A new provider makes the old complaint stale, and
+				// the entries that need no URL can never have one.
+				st.ProviderErr = nil
+				// The index belonged to the old provider's list. Server
+				// lists differ in length, so carrying it over would
+				// silently select a different host than the one the
+				// picker last showed.
+				st.ServerIdx = 0
+				ctx.Window.UpdateWindow()
+			},
+		}),
+	}
+
+	// Which server, for a provider that has more than one. A list of
+	// one would be a control with no choice in it, so it is skipped.
+	if servers := s.Provider().Servers; len(servers) > 1 {
+		names := make([]string, len(servers))
+		for i, srv := range servers {
+			names[i] = srv.Name
+		}
+		content = append(content, gui.Combobox(gui.ComboboxCfg{
+			ID:       "server",
+			Options:  names,
+			Value:    s.Server().Name,
+			MinWidth: serverWidth,
+			MaxWidth: serverWidth,
+			Disabled: running,
+			A11YCfg:  gui.A11YCfg{A11YLabel: "Speed test server"},
+			OnSelect: func(name string, ctx gui.EventCtx) {
+				st := state(ctx.Window)
+				for i, srv := range st.Provider().Servers {
+					if srv.Name == name {
+						st.ServerIdx = i
+						break
+					}
+				}
+				ctx.Window.UpdateWindow()
+			},
+		}))
+	}
+
+	if s.Provider().Custom {
+		content = append(content, gui.Input(gui.InputCfg{
+			ID:          "provider-url",
+			Text:        s.CustomURL,
+			Placeholder: "https://host.example",
+			Width:       customURLWidth,
+			Disabled:    running,
+			A11YCfg:     gui.A11YCfg{A11YLabel: "Custom provider base URL"},
+			OnTextChanged: func(text string, ctx gui.EventCtx) {
+				st := state(ctx.Window)
+				st.CustomURL = text
+				// Cleared on edit, not re-checked: complaining about a
+				// half-typed URL after every keystroke is noise. The
+				// check runs once, when Start is pressed.
+				st.ProviderErr = nil
+			},
+		}))
+	}
+
+	return gui.Row(gui.ContainerCfg{
+		Sizing:     gui.FitFit,
+		Padding:    gui.NoPadding,
+		Spacing:    gui.SomeF(8),
+		VAlign:     gui.VAlignMiddle,
+		SizeBorder: gui.NoBorder,
+		Content:    content,
+	})
+}
+
 // runButton starts or stops a run. One control, because one control is
 // all a speed test needs.
 func runButton(s *State) gui.View {
@@ -183,6 +302,8 @@ func runButton(s *State) gui.View {
 // that are easy to miss: a failure, and a run that used no network.
 func statusLine(s *State) string {
 	switch {
+	case s.ProviderErr != nil:
+		return "provider: " + s.ProviderErr.Error()
 	case s.Err != nil:
 		return "failed: " + s.Err.Error()
 	case s.Phase == probe.PhaseIdle && s.Result == nil:
@@ -198,15 +319,24 @@ func statusLine(s *State) string {
 	}
 }
 
-// traceSuffix names the answering datacenter once it is known.
+// traceSuffix names the answering host once it is known.
+//
+// The code in brackets is Cloudflare's datacenter identifier. A
+// LibreSpeed server has no such code, so it is dropped rather than
+// filled in with something that only looks like one.
 func traceSuffix(s *State) string {
-	if s.Trace == nil || s.Trace.Colo == "" {
+	switch {
+	case s.Trace == nil:
+		return ""
+	case s.Trace.ColoCity != "" && s.Trace.Colo != "":
+		return fmt.Sprintf("  ·  %s (%s)", s.Trace.ColoCity, s.Trace.Colo)
+	case s.Trace.ColoCity != "":
+		return "  ·  " + s.Trace.ColoCity
+	case s.Trace.Colo != "":
+		return "  ·  " + s.Trace.Colo
+	default:
 		return ""
 	}
-	if s.Trace.ColoKnown {
-		return fmt.Sprintf("  ·  %s (%s)", s.Trace.ColoCity, s.Trace.Colo)
-	}
-	return "  ·  " + s.Trace.Colo
 }
 
 // heroRow is what the eye lands on first: the dial on the left, the

@@ -6,6 +6,7 @@ package probe
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"time"
 
@@ -60,18 +61,20 @@ func (e *Engine) run(ctx context.Context, emit func(Event)) {
 	started := time.Now()
 	res := &Result{}
 
-	// Phase 1: where are we, and who is answering.
+	// Phase 1: where are we, and who is answering. Which endpoints
+	// that means depends on the provider's protocol, so it goes
+	// through the backend rather than straight to Cloudflare's trace.
 	emit(Event{Kind: EventPhase, Phase: PhaseTrace})
-	tr, err := fetchTrace(ctx, e.cfg)
-	if err != nil {
+	tr, err := e.cfg.resolveBackend().identify(ctx, e.cfg)
+	var cosmetic metaFailed
+	switch {
+	case errors.As(err, &cosmetic):
+		// The trace landed and only the extra detail was lost. That is
+		// a shorter connection panel, not a failed run.
+		slog.Debug("connection detail lookup failed", "err", err)
+	case err != nil:
 		fail(emit, PhaseTrace, err)
 		return
-	}
-	// Best effort, and deliberately not fatal: this call only adds
-	// detail to the connection panel, and the run below does not
-	// depend on any of it.
-	if err := fetchMeta(ctx, e.cfg, tr); err != nil {
-		slog.Debug("meta lookup failed", "err", err)
 	}
 	res.Trace = *tr
 	emit(Event{Kind: EventTrace, Phase: PhaseTrace, Trace: tr})

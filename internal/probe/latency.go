@@ -6,7 +6,6 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptrace"
-	"strings"
 	"time"
 )
 
@@ -18,7 +17,7 @@ import (
 // so treat these numbers as "latency to a working HTTP response", which
 // is what a user actually feels, rather than as an ICMP ping.
 func measureRTT(ctx context.Context, cfg Config) (time.Duration, error) {
-	url := strings.TrimRight(cfg.BaseURL, "/") + "/__down?bytes=0"
+	url := cfg.resolveBackend().pingURL(cfg)
 
 	var start, firstByte time.Time
 	trace := &httptrace.ClientTrace{
@@ -42,7 +41,7 @@ func measureRTT(ctx context.Context, cfg Config) (time.Duration, error) {
 	_, _ = io.Copy(io.Discard, resp.Body)
 	_ = resp.Body.Close()
 
-	if resp.StatusCode == http.StatusTooManyRequests {
+	if refused(resp.StatusCode) {
 		return 0, ErrRateLimited
 	}
 	if resp.StatusCode != http.StatusOK {

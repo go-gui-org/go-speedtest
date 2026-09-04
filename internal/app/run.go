@@ -1,7 +1,6 @@
 package app
 
 import (
-	"context"
 	"math"
 	"sync"
 	"time"
@@ -17,22 +16,42 @@ import (
 // it touches State directly.
 func Start(w *gui.Window) {
 	s := state(w)
-	s.reset()
 
-	ctx, cancel := context.WithCancel(context.Background())
-	s.setCancel(cancel)
+	// A custom URL is checked before anything is torn down. Refusing
+	// here leaves the last run's numbers on screen, which is what the
+	// user wants to keep looking at while they fix the address.
+	p := s.Provider()
+	if p.Custom {
+		if err := probe.CheckURL(s.CustomURL); err != nil {
+			s.ProviderErr = err
+			return
+		}
+	}
+	s.ProviderErr = nil
+	// The provider fills in the protocol, the origin and the server
+	// together; everything else on the config is this app's own.
+	cfg := p.Apply(probe.Config{Timeout: s.Timeout}, s.CustomURL, s.ServerIdx)
+
+	// Retire the previous run before clearing the charts, not after:
+	// between the two the old pump is still appending, and anything it
+	// writes in that window survives the reset.
+	ctx, gen := s.beginRun()
+	s.reset()
 	s.Started = time.Now()
 	s.Phase = probe.PhaseTrace
 
-	eng := probe.New(probe.Config{Simulate: s.Demo, Timeout: s.Timeout})
-	go pump(w, s, eng.Run(ctx), s.Started)
+	eng := probe.New(cfg)
+	go pump(w, s, eng.Run(ctx), s.Started, gen)
 }
 
 // Stop cancels the run in progress and leaves whatever was measured on
 // screen.
 func Stop(w *gui.Window) {
 	s := state(w)
-	if !s.clearCancel() {
+	// endRun, not a bare cancel: the engine's channel still holds
+	// events, and without retiring the generation the chart would keep
+	// growing for a moment after the button was pressed.
+	if !s.endRun() {
 		return
 	}
 	if s.Phase.Active() {
@@ -50,10 +69,17 @@ func Stop(w *gui.Window) {
 //
 // The RealTimeSeries appends are the exception: those carry their own
 // mutex, so they happen here rather than being deferred to a frame.
-func pump(w *gui.Window, s *State, events <-chan probe.Event, started time.Time) {
-	pub := &publisher{w: w, s: s}
+func pump(w *gui.Window, s *State, events <-chan probe.Event, started time.Time, gen uint64) {
+	pub := &publisher{w: w, s: s, gen: gen}
 
 	for ev := range events {
+		// A run that has been replaced or stopped still has events in
+		// the channel behind it. They belong to a chart that is gone,
+		// so this pump goes quiet the moment its generation is retired
+		// rather than writing them into the run that took its place.
+		if !s.isCurrentRun(gen) {
+			continue
+		}
 		switch ev.Kind {
 		case probe.EventPhase:
 			phase := ev.Phase
@@ -74,7 +100,15 @@ func pump(w *gui.Window, s *State, events <-chan probe.Event, started time.Time)
 			pub.post(func(s *State) { s.Trace = tr })
 			// Map overlays are window state, so they go through the
 			// same queue rather than being touched from here.
-			w.QueueCommand(func(w *gui.Window) { applyTrace(w, tr) })
+			w.QueueCommand(func(w *gui.Window) {
+				// Checked again on the window thread: the queue is
+				// drained a frame later, by which time this run may
+				// have been replaced, and the pins would land on the
+				// new run's map.
+				if s.isCurrentRun(gen) {
+					applyTrace(w, tr)
+				}
+			})
 
 		case probe.EventRTT:
 			ms := float64(ev.RTT) / float64(time.Millisecond)
@@ -141,7 +175,7 @@ func pump(w *gui.Window, s *State, events <-chan probe.Event, started time.Time)
 		case probe.EventError:
 			err := ev.Err
 			pub.post(func(s *State) { s.Err = err })
-			s.clearCancel()
+			s.finishRun(gen)
 
 		case probe.EventDone:
 			res := ev.Res
@@ -149,7 +183,7 @@ func pump(w *gui.Window, s *State, events <-chan probe.Event, started time.Time)
 				s.Result = res
 				s.Version++
 			})
-			s.clearCancel()
+			s.finishRun(gen)
 		}
 	}
 }
@@ -163,6 +197,9 @@ func pump(w *gui.Window, s *State, events <-chan probe.Event, started time.Time)
 type publisher struct {
 	w *gui.Window
 	s *State
+	// gen is the run this publisher belongs to. A batch is dropped
+	// rather than applied once that run has been retired.
+	gen uint64
 
 	mu      sync.Mutex
 	pending []func(*State)
@@ -187,6 +224,12 @@ func (p *publisher) post(mutate func(*State)) {
 		p.queued = false
 		p.mu.Unlock()
 
+		// The batch was built before this command reached the window
+		// thread, so its run can have been replaced in between. The
+		// whole batch belongs to one run, so one check covers it.
+		if !p.s.isCurrentRun(p.gen) {
+			return
+		}
 		for _, fn := range batch {
 			fn(p.s)
 		}
