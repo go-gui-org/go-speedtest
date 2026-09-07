@@ -4,8 +4,18 @@ go.work.sum
 
 # Build output
 /go-speedtest
+/build/
 /dist/
 
 # Screenshots produced by -screenshot
 *.png
 !docs/*.png
+# Icon artwork is source, not output: assets/icons holds the generated
+# set (see its README) and internal/icon holds the copy the binary
+# embeds. Both must be tracked or a release ships the wrong icon.
+!assets/*.png
+!assets/icons/*.png
+!internal/icon/*.png
+
+# macOS Finder metadata
+.DS_Store

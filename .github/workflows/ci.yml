@@ -26,27 +26,16 @@ jobs:
           # go.mod names the toolchain, so CI and a local build agree.
           go-version-file: go.mod
 
-      # go-glyph is cgo and needs the text stack. go-gui's own GL backend
-      # does not, but the shared dependency pulls these in on both hosts.
-      - name: Install Linux deps
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            pkg-config \
-            libsdl2-dev \
-            libfreetype6-dev \
-            libharfbuzz-dev \
-            libpango1.0-dev \
-            libfontconfig1-dev
-
-      - name: Install macOS deps
+      # No system packages. go-glyph has been pure Go since v1.19 (no
+      # FreeType, HarfBuzz, Pango or SDL) and go-gui reaches GL through
+      # purego, so Linux builds and tests with cgo disabled.
+      #
+      # macOS is the exception: the Metal backend is cgo. Without this
+      # the darwin build still succeeds, but it silently links no Metal
+      # and produces a binary whose GUI cannot open a window.
+      - name: Enable cgo for the Metal backend
         if: runner.os == 'macOS'
-        run: |
-          brew install pkg-config sdl2 freetype harfbuzz pango fontconfig
-          prefix=$(brew --prefix)
-          echo "PKG_CONFIG_PATH=${prefix}/lib/pkgconfig:${prefix}/share/pkgconfig" >> "$GITHUB_ENV"
-          echo "CGO_ENABLED=1" >> "$GITHUB_ENV"
+        run: echo "CGO_ENABLED=1" >> "$GITHUB_ENV"
 
       - name: Build
         run: go build ./...
@@ -65,17 +54,6 @@ jobs:
       - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
-
-      - name: Install Linux deps
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            pkg-config \
-            libsdl2-dev \
-            libfreetype6-dev \
-            libharfbuzz-dev \
-            libpango1.0-dev \
-            libfontconfig1-dev
 
       - name: Vet
         run: go vet ./...
