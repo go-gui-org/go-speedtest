@@ -37,8 +37,14 @@ func main() {
 		timeout = flag.Duration("timeout", 90*time.Second, "give up on a run after this long")
 		shot    = flag.String("screenshot", "", "render one frame to this PNG path and exit")
 		shotAt  = flag.Duration("screenshot-at", 9*time.Second, "how far into the run to capture")
+		showVer = flag.Bool("version", false, "print the build version and exit")
 	)
 	flag.Parse()
+
+	if *showVer {
+		fmt.Println("go-speedtest", appVersion())
+		return
+	}
 
 	// -demo is the older spelling of "point at the offline generator".
 	// Kept, and folded into the provider name here so there is one

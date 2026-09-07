@@ -1,0 +1,115 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+# Nothing by default. Only the final job needs a write token, to attach
+# the assets, and only it asks for one.
+permissions: {}
+
+# Each job runs the same Makefile target a developer runs locally, so a
+# release can be rehearsed with `make release` before the tag is pushed.
+# go-speedtest pins published tags of go-gui, go-charts and go-map, so
+# there are no sibling checkouts and no replace directives here.
+jobs:
+  linux:
+    name: Linux
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        # buildapp stamps the archive name from `git describe`, which
+        # needs the tag history that a shallow clone leaves out.
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # No apt step: the desktop build is cgo-free. go-gui reaches GL
+      # through purego and go-glyph has been pure Go since v1.19, so
+      # nothing here links against the system text or GL stack.
+      - name: Package amd64 and arm64
+        run: make package-linux
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: linux-asset
+          path: dist/go-speedtest-*-linux-*.tar.gz
+
+  windows:
+    name: Windows
+    # Cross-compiled from Linux rather than built on a windows runner:
+    # the build is cgo-free, so the result is identical and one runner
+    # produces both architectures.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Package amd64 and arm64
+        run: make package-windows
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: windows-asset
+          path: dist/go-speedtest-*-windows-*.zip
+
+  macos:
+    name: macOS
+    # A Mac is required: the Metal backend is the one cgo target, and
+    # the bundle needs sips, iconutil, lipo, hdiutil and codesign.
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # Builds a universal binary, bundles it as Go Speedtest.app with
+      # the .icns, and writes an ad-hoc signed .dmg.
+      - name: Package universal .dmg
+        run: make package-macos
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: macos-asset
+          path: dist/go-speedtest-*-macos.dmg
+
+  release:
+    name: Attach to GitHub Release
+    needs: [linux, windows, macos]
+    runs-on: ubuntu-latest
+    # Only this job writes. The build jobs above keep the workflow's
+    # empty permission set.
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: '*-asset'
+          merge-multiple: true
+          path: dist
+
+      # Pinned to a commit rather than the v3 tag: a tag can be moved to
+      # point at different code, a commit cannot.  This commit is release
+      # 3.0.3, which is what refs/tags/v3 dereferenced to when it was
+      # written.  Bump it deliberately, after reading the diff.
+      - uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64
+        with:
+          files: dist/*
+          generate_release_notes: true

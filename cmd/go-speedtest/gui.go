@@ -8,6 +8,7 @@ import (
 	"github.com/go-gui-org/go-gui/gui/backend"
 	"github.com/go-gui-org/go-map/tile"
 	"github.com/go-gui-org/go-speedtest/internal/app"
+	"github.com/go-gui-org/go-speedtest/internal/icon"
 	"github.com/go-gui-org/go-speedtest/internal/probe"
 )
 
@@ -24,10 +25,14 @@ func runGUI(ctx context.Context, sel probe.Selection,
 	}
 
 	cfg := gui.WindowCfg{
-		State:  st,
-		Title:  "go-speedtest",
-		Width:  1180,
-		Height: 780,
+		State: st,
+		Title: "go-speedtest",
+		// Without this the backend installs go-gui's own default
+		// icon over ours, in the Dock on macOS and in the taskbar
+		// on Linux and Windows. See internal/icon.
+		IconPNG: icon.AppPNG,
+		Width:   1180,
+		Height:  780,
 		OnInit: func(w *gui.Window) {
 			// Register the view once. Every later redraw goes through
 			// UpdateWindow, which keeps the map's viewport and the
