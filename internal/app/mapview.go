@@ -3,6 +3,8 @@ package app
 import (
 	"math"
 
+	glyph "github.com/go-gui-org/go-glyph"
+
 	"github.com/go-gui-org/go-gui/gui"
 	"github.com/go-gui-org/go-map/mapview"
 	"github.com/go-gui-org/go-map/projection"
@@ -38,10 +40,8 @@ const arcSegments = 48
 // TileSource is the map's tile provider, built once in main and shared
 // with the window so the HTTP fetcher carries the same identifying
 // user agent. OSM's tile policy requires that.
-//
-// The tiles are re-toned on the way in; see darkTiles.
 func TileSource() tile.Source {
-	return darkTiles{Source: tile.OSMWithUserAgent(probe.DefaultUserAgent)}
+	return tile.OSMWithUserAgent(probe.DefaultUserAgent)
 }
 
 // mapPanel is the map card: where the traffic went.
@@ -52,25 +52,125 @@ func mapPanel(s *State) gui.View {
 	cfg.Padding = gui.NewPadding(8, 10, 8, 10)
 	cfg.Spacing = gui.SomeF(4)
 	cfg.Content = []gui.View{
-		panelTitle(mapTitle(s), colorUp),
-		mapview.Map(mapview.Cfg{
-			ID:        mapID,
-			Sizing:    gui.FillFill,
-			Focusable: true,
-			Source:    s.Tiles,
-			// A world view until the trace lands, at which point
-			// applyTrace frames the two pins.
-			InitialCenter: projection.LatLng{Lat: 20, Lng: 0},
-			InitialZoom:   1,
-			// What shows through before a tile arrives. Left at the
-			// default it was a pale flash on every pan; matching the
-			// re-toned tiles means a missing one reads as empty rather
-			// than as a hole.
-			Background: mix(gui.CurrentTheme().ColorPanel, colorDown, 0.05),
-			A11YLabel:  "Map of the route to the serving datacenter",
-		}),
+		panelTitleID(mapTitle(s), colorUp, mapTitleID),
+		mapHoverRing(s),
 	}
 	return gui.Column(cfg)
+}
+
+// Wheel-zoom cue. Whether the wheel zooms the map or scrolls the body
+// is decided by one rule now: the pointer is over the map, so the map
+// gets the event.
+//
+// Focus used to be a second rule, and a bad one. go-gui offers a
+// scroll to the focused widget's handler before it looks under the
+// cursor (gui.mouseScrollHandler), and go-map's handler takes it — so
+// a click on the map captured the wheel for the whole window until
+// something else took focus. The map is no longer focusable, which
+// costs it its tab stop and its keyboard pan/zoom and buys back a
+// wheel that always obeys the pointer. TestMapIsNotFocusable pins it.
+//
+// The cue says exactly that one rule: while the "Route" label is
+// bold, the wheel zooms the map.
+// The label goes bold and picks up the map's accent, and a hairline
+// appears around the map rect — the label is the loud half, because a
+// border alone was too easy to miss at a glance.
+const (
+	// mapTitleID addresses the card's label so the hover handler can
+	// find it in the laid-out tree.
+	mapTitleID = "map-title"
+	// The ring is always this wide, lit or not. Widening it on hover
+	// would re-run layout under the pointer and shift the map by a
+	// pixel every time the cursor crossed the edge.
+	mapRingWidth float32 = 1
+	// How much of the map's accent the lit ring carries.
+	mapRingTint = 0.45
+)
+
+// mapHoverRing wraps the map in the cue described above.
+//
+// The sensor is this container rather than the card, so it covers the
+// rect the wheel actually acts on: the title strip above the map
+// scrolls the body like any other chrome, and it stays outside.
+func mapHoverRing(s *State) gui.View {
+	theme := gui.CurrentTheme()
+	return gui.Column(gui.ContainerCfg{
+		Sizing:     gui.FillFill,
+		Padding:    gui.NoPadding,
+		SizeBorder: gui.SomeF(mapRingWidth),
+		// At rest the ring is the card's own color, so the map looks
+		// exactly as it did before the pointer arrived.
+		ColorBorder: theme.ColorPanel,
+		Radius:      gui.SomeF(theme.RadiusSmall),
+		// OnHover runs inside the layout pass and paints into this
+		// frame; nothing fires once the pointer leaves, and neither
+		// shape is touched by a frame that lights nothing, so both
+		// come back as the generator built them. No hover state to
+		// keep, and none to clear.
+		OnHover: func(c gui.EventCtx) {
+			lightCue(c, theme)
+		},
+		Content: []gui.View{
+			mapview.Map(mapview.Cfg{
+				ID:     mapID,
+				Sizing: gui.FillFill,
+				// Deliberately not focusable — see the cue note above.
+				// Focus would let the map keep the wheel after a click
+				// with the pointer anywhere on screen.
+				Focusable: false,
+				Source:    s.Tiles,
+				// A world view until the trace lands, at which point
+				// applyTrace frames the two pins.
+				InitialCenter: projection.LatLng{Lat: 20, Lng: 0},
+				InitialZoom:   1,
+				// What shows through before a tile arrives. Left at the
+				// default it was a pale flash on every pan; a
+				// panel-toned ground means a missing tile reads as
+				// empty rather than as a hole.
+				Background: mix(theme.ColorPanel, colorDown, 0.05),
+				A11YLabel:  "Map of the route to the serving datacenter",
+			}),
+		},
+	})
+}
+
+// lightCue lights both halves of the cue for this frame: the ring
+// around the map and the card's label above it.
+//
+// c is the ring's own context either way, so the ring is c's shape and
+// the label is a sibling one level up. The label is addressed by its
+// effective ID, because the scrolling body is ID-bearing and scopes
+// every ID under it ("body-scroll:map-title"). A miss is not worth
+// handling — the ring still marks the map.
+func lightCue(c gui.EventCtx, theme gui.Theme) {
+	if c.Layout == nil || c.Layout.Shape == nil || c.Layout.Parent == nil {
+		return
+	}
+	c.Layout.Shape.ColorBorder = mix(theme.ColorPanel, colorUp, mapRingTint)
+	if title, ok := c.Layout.Parent.FindByID(c.EffID(mapTitleID)); ok {
+		emphasize(title.Shape)
+	}
+}
+
+// emphasize restyles a laid-out label bold and in the map's accent.
+//
+// It runs after the sizing pass, so the label keeps the box measured
+// for the regular face and the wider glyphs simply draw into the free
+// space to its right. Nothing else sits on that line, so there is
+// nothing for them to collide with, and the row does not reflow under
+// the pointer.
+//
+// The style is replaced, never edited in place: the pointer a label
+// carries is the theme's own style, shared by every other label in the
+// window.
+func emphasize(sh *gui.Shape) {
+	if sh == nil || sh.TC == nil || sh.TC.TextStyle == nil {
+		return
+	}
+	st := *sh.TC.TextStyle
+	st.Typeface = glyph.TypefaceBold
+	st.Color = colorUp
+	sh.TC.TextStyle = &st
 }
 
 // coloLabel names the far end: the city, with Cloudflare's datacenter

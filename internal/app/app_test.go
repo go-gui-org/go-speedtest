@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/go-gui-org/go-charts/series"
+	glyph "github.com/go-gui-org/go-glyph"
 	"github.com/go-gui-org/go-gui/gui"
 	"github.com/go-gui-org/go-map/projection"
 	"github.com/go-gui-org/go-speedtest/internal/probe"
@@ -541,4 +542,46 @@ func TestPumpIgnoresAStoppedRun(t *testing.T) {
 	if n := len(s.Down.Snapshot().Points); n != 0 {
 		t.Errorf("a stopped run appended %d points", n)
 	}
+}
+
+// TestMapIsNotFocusable pins the fix for the wheel-capture bug: go-gui
+// hands a scroll event to the focused widget before it looks at what is
+// under the cursor, so a focusable map that had been clicked kept the
+// wheel wherever the pointer went. The map is not focusable, so a click
+// leaves focus alone and the wheel keeps following the pointer.
+func TestMapIsNotFocusable(t *testing.T) {
+	w := gui.NewTestWindow(gui.WindowCfg{
+		State:  New(true, time.Minute, nil),
+		Width:  1180,
+		Height: 780,
+		OnInit: func(w *gui.Window) { w.UpdateView(Root) },
+	})
+	w.TestRender(nil)
+
+	id := gui.ScopeID(scrollID, mapID)
+	if err := w.TestClick(id); err != nil {
+		t.Fatalf("click map: %v", err)
+	}
+	if got := w.FocusID(); got == id {
+		t.Errorf("focus after clicking the map = %q, want anything but the map", got)
+	}
+
+	// The label stays plain: nothing owns the wheel, so the cue must
+	// not claim the map does.
+	root := w.TestRender(nil)
+	title, ok := root.FindByID(gui.ScopeID(scrollID, mapTitleID))
+	if !ok || title.Shape == nil || title.Shape.TC == nil || title.Shape.TC.TextStyle == nil {
+		t.Fatal("map title not in the laid-out tree")
+	}
+	if got := title.Shape.TC.TextStyle.Typeface; got == glyph.TypefaceBold {
+		t.Error("map title is bold with the pointer off the map, want plain")
+	}
+}
+
+// TestEmphasizeNilSafe pins the harden guards: the hover cue looks the
+// label up in the laid-out tree, so a miss or a text-less shape must be
+// a no-op rather than a panic.
+func TestEmphasizeNilSafe(t *testing.T) {
+	emphasize(nil)
+	emphasize(&gui.Shape{})
 }
