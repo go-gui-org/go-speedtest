@@ -89,6 +89,16 @@ const (
 // pairs a panel with its reading in the hero row without reading
 // either label.
 func panelTitle(title string, accent gui.Color) gui.View {
+	return panelTitleID(title, accent, "")
+}
+
+// panelTitleID is panelTitle with an ID stamped on the label.
+//
+// The ID is how a hover handler finds the label again in the laid-out
+// tree; a card whose title never has to react passes "" and stays
+// unaddressable. It is on the label rather than on the row because the
+// label is the shape a handler restyles.
+func panelTitleID(title string, accent gui.Color, id string) gui.View {
 	theme := gui.CurrentTheme()
 	return gui.Row(gui.ContainerCfg{
 		Sizing:     gui.FillFit,
@@ -113,6 +123,7 @@ func panelTitle(title string, accent gui.Color) gui.View {
 				},
 			}),
 			gui.Text(gui.TextCfg{
+				ID:   id,
 				Text: title, TextStyle: theme.TextStyleLabel,
 			}),
 		},

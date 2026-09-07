@@ -32,6 +32,11 @@ const (
 	simLoadedRTTInterval = 500 * time.Millisecond
 	simDownTime          = 10 * time.Second
 	simUpTime            = 10 * time.Second
+	// Peosta, Iowa — the town the simulated trace claims as the client
+	// city. Kept next to the rest of the scripted constants so the pin
+	// and the label move together.
+	simClientLat = 42.4497
+	simClientLng = -90.8543
 )
 
 // runSimulated plays a scripted run against the clock.
@@ -50,11 +55,18 @@ func (e *Engine) runSimulated(ctx context.Context, emit func(Event)) {
 	// Documentation-range address and a made-up network, so a demo
 	// screenshot never shows a real subscriber's details.
 	tr := &Trace{
-		Colo: "SEA", IP: "203.0.113.7", Loc: "US",
+		Colo: "ORD", IP: "203.0.113.7", Loc: "US",
 		ASN: 64512, ASOrg: "EXAMPLE VALLEY BROADBAND COOPERATIVE",
 		City: "Peosta", Region: "Iowa", HTTPProtocol: "HTTP/2",
 	}
 	resolveLocations(tr)
+	// resolveLocations only knows country centroids for the client, so
+	// it would drop the pin in Kansas while the labels above it read
+	// "Peosta, Iowa". The demo owns its own coordinates, so pin the
+	// client where the text says it is: a real 180-mile hop out to the
+	// Chicago edge, which is what the route line is meant to show.
+	tr.ClientLat, tr.ClientLng = simClientLat, simClientLng
+	tr.ClientKnown = true
 	res.Trace = *tr
 	emit(Event{Kind: EventTrace, Phase: PhaseTrace, Trace: tr})
 

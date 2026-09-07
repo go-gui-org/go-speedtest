@@ -12,8 +12,9 @@ import (
 	"github.com/go-gui-org/go-speedtest/internal/stats"
 )
 
-// Panel sizes. The second row takes whatever height is left, so only
-// the hero band needs a number.
+// Panel sizes. The hero band is fixed; the second row takes whatever
+// height is left but never goes under secondRowMin, at which point the
+// body scrolls instead of squashing the chart and the map.
 const (
 	heroRowHeight float32 = 340
 	mapPanelWidth float32 = 380
@@ -21,6 +22,10 @@ const (
 	// The connection facts are text, so the column is as wide as a
 	// readable line of it and no wider; the charts want the rest.
 	connPanelWidth float32 = 250
+	// The height the second row gets at the default window size
+	// (780 tall, minus the header and the hero band). Held as a floor
+	// so shrinking the window does not eat the chart and the map.
+	secondRowMin float32 = 362
 )
 
 // Root is the window's view generator, registered once in OnInit and
@@ -47,11 +52,43 @@ func Root(w *gui.Window) gui.View {
 		Padding: gui.NoPadding,
 		Content: []gui.View{
 			headerView(s),
+			bodyScroll(s),
+		},
+	})
+}
+
+// bodyScroll holds everything under the header and scrolls it.
+//
+// The two bands below the header have floors — the hero row is a fixed
+// 340 and the second row will not go under secondRowMin — so a short
+// window has to give somewhere. Scrolling is that somewhere: the dial,
+// the charts and the map keep the size they are readable at, and the
+// window pans over them instead of crushing them.
+//
+// The header stays outside this container on purpose. It carries the
+// status line and the run button, which are the two things that must
+// stay reachable no matter where the body is scrolled to.
+func bodyScroll(s *State) gui.View {
+	return gui.Column(gui.ContainerCfg{
+		ID:         scrollID,
+		Sizing:     gui.FillFill,
+		Scrollable: true,
+		// Vertical only: nothing under the header has a width floor,
+		// so the columns reflow sideways and there is never anything
+		// to scroll to horizontally.
+		ScrollMode: gui.ScrollVerticalOnly,
+		Padding:    gui.NoPadding,
+		SizeBorder: gui.NoBorder,
+		Content: []gui.View{
 			heroRow(s),
 			secondRow(s),
 		},
 	})
 }
+
+// scrollID keys the body's scroll state in the window. Scrollable
+// containers need a stable ID; this one is never re-used.
+const scrollID = "body-scroll"
 
 // headerView is the title bar: what this is, where it is measuring to,
 // the mascot while a run is live, and the one control.
@@ -515,10 +552,13 @@ func elapsedText(s *State) string {
 
 // secondRow is the two views that need room to breathe: the live
 // throughput chart and the map of where the traffic went. It takes all
-// the height the hero row leaves.
+// the height the hero row leaves, and never less than secondRowMin:
+// the chart and the map both stop being readable before they stop
+// being drawn, so a short window scrolls rather than squashes them.
 func secondRow(s *State) gui.View {
 	return gui.Row(gui.ContainerCfg{
 		Sizing:     gui.FillFill,
+		MinHeight:  secondRowMin,
 		Padding:    gui.NewPadding(0, 12, 12, 12),
 		Spacing:    gui.SomeF(10),
 		SizeBorder: gui.NoBorder,
