@@ -3,10 +3,10 @@ module github.com/go-gui-org/go-speedtest
 go 1.26.4
 
 require (
-	github.com/go-gui-org/go-charts v0.9.0
-	github.com/go-gui-org/go-glyph v1.25.0
-	github.com/go-gui-org/go-gui v0.69.0
-	github.com/go-gui-org/go-map v0.7.0
+	github.com/go-gui-org/go-charts v0.10.0
+	github.com/go-gui-org/go-glyph v1.25.1
+	github.com/go-gui-org/go-gui v0.72.0
+	github.com/go-gui-org/go-map v0.8.0
 )
 
 require (
