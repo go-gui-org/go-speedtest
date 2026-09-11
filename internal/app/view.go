@@ -29,7 +29,7 @@ const (
 )
 
 // Root is the window's view generator, registered once in OnInit and
-// re-run by the event pump through UpdateWindow.
+// re-run by the event pump through InvalidateLayout.
 func Root(w *gui.Window) gui.View {
 	s := state(w)
 	theme := gui.CurrentTheme()
@@ -246,7 +246,7 @@ func providerPicker(s *State) gui.View {
 				// silently select a different host than the one the
 				// picker last showed.
 				st.ServerIdx = 0
-				ctx.Window.UpdateWindow()
+				ctx.Window.InvalidateLayout()
 			},
 		}),
 	}
@@ -274,7 +274,7 @@ func providerPicker(s *State) gui.View {
 						break
 					}
 				}
-				ctx.Window.UpdateWindow()
+				ctx.Window.InvalidateLayout()
 			},
 		}))
 	}
@@ -330,7 +330,7 @@ func runButton(s *State) gui.View {
 			// The click callback does not hold the frame lock, so this
 			// redraw is safe here; without it the button label would
 			// not change until the first event arrived.
-			ctx.Window.UpdateWindow()
+			ctx.Window.InvalidateLayout()
 		},
 	})
 }

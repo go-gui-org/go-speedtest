@@ -274,7 +274,7 @@ func applyTrace(w *gui.Window, tr *probe.Trace) {
 			s.mapFitted = true
 		}
 	}
-	w.UpdateWindow()
+	w.InvalidateLayout()
 }
 
 // boundsOf returns the smallest box covering every point.

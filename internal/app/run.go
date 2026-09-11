@@ -233,8 +233,8 @@ func (p *publisher) post(mutate func(*State)) {
 		for _, fn := range batch {
 			fn(p.s)
 		}
-		// Safe inside a queued command: UpdateWindow only marks the
+		// Safe inside a queued command: InvalidateLayout only marks the
 		// window for refresh and wakes the loop, it takes no lock.
-		w.UpdateWindow()
+		w.InvalidateLayout()
 	})
 }

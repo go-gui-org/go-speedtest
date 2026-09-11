@@ -35,9 +35,9 @@ func runGUI(ctx context.Context, sel probe.Selection,
 		Height:  780,
 		OnInit: func(w *gui.Window) {
 			// Register the view once. Every later redraw goes through
-			// UpdateWindow, which keeps the map's viewport and the
+			// InvalidateLayout, which keeps the map's viewport and the
 			// charts' animation state.
-			w.UpdateView(app.Root)
+			w.SetView(app.Root)
 			if autostart {
 				app.Start(w)
 			}
