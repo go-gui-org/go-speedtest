@@ -37,7 +37,7 @@ func shoot(path string, sel probe.Selection,
 		Width:  1180,
 		Height: 780,
 		OnInit: func(w *gui.Window) {
-			w.UpdateView(app.Root)
+			w.SetView(app.Root)
 			app.Start(w)
 		},
 	}
@@ -49,7 +49,7 @@ func shoot(path string, sel probe.Selection,
 	// Capture from the window thread, through the command queue, while
 	// the real frame loop is running. Rendering off-thread would race
 	// the loop, and rendering without the loop leaves the view frozen
-	// at whatever OnInit built: the refresh UpdateWindow requests is
+	// at whatever OnInit built: the refresh InvalidateLayout requests is
 	// serviced by the frame loop, not by the rasterizer.
 	// A plain wait, not a poll on the run's state: this goroutine can
 	// reach its first check before the window has finished starting,

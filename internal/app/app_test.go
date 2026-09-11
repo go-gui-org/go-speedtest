@@ -554,7 +554,7 @@ func TestMapIsNotFocusable(t *testing.T) {
 		State:  New(true, time.Minute, nil),
 		Width:  1180,
 		Height: 780,
-		OnInit: func(w *gui.Window) { w.UpdateView(Root) },
+		OnInit: func(w *gui.Window) { w.SetView(Root) },
 	})
 	w.TestRender(nil)
 
