@@ -658,7 +658,7 @@ func connPanel(s *State) gui.View {
 func connRow(icon, label, value string, accent gui.Color) gui.View {
 	theme := gui.CurrentTheme()
 
-	iconStyle := theme.Icon3
+	iconStyle := theme.TextStyleIconMedium
 	iconStyle.Color = accent
 
 	return gui.Row(gui.ContainerCfg{
@@ -679,7 +679,7 @@ func connRow(icon, label, value string, accent gui.Color) gui.View {
 					}),
 					gui.Text(gui.TextCfg{
 						Text:      value,
-						TextStyle: theme.B4,
+						TextStyle: theme.TextStyleBodySmall.Bold(),
 						Sizing:    gui.FillFit,
 						Mode:      gui.TextModeWrap,
 					}),
