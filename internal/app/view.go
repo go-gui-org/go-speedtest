@@ -96,8 +96,8 @@ func headerView(s *State) gui.View {
 	theme := gui.CurrentTheme()
 
 	left := []gui.View{
-		gui.Text(gui.TextCfg{Text: "go-speedtest", TextStyle: theme.B2}),
-		gui.Text(gui.TextCfg{Text: statusLine(s), TextStyle: theme.N5}),
+		gui.Text(gui.TextCfg{Text: "go-speedtest", TextStyle: theme.TextStyleTitle}),
+		gui.Text(gui.TextCfg{Text: statusLine(s), TextStyle: theme.TextStyleCaption}),
 	}
 	// The mascot is a self-driving animated SVG: it registers its own
 	// render-only ticker while it is in the tree, so it needs nothing
@@ -423,7 +423,7 @@ func statsPanel(s *State) gui.View {
 			statText("Upload", format.Mbps(up), "Mbps", colorUp),
 			statText("Latency", format.MillisF(stats.Median(s.RTTIdle.Vals)), "ms p50", colorLatency),
 			statText("Jitter", format.MillisF(stats.Jitter(s.RTTIdle.Vals)), "ms", colorLatency),
-			statText("Elapsed", elapsedText(s), "", theme.B2.Color),
+			statText("Elapsed", elapsedText(s), "", theme.TextStyleTitle.Color),
 		},
 	})
 }
@@ -447,7 +447,7 @@ func statText(label, value, unit string, accent gui.Color) gui.View {
 	// same width, so a live reading does not shuffle sideways as 199
 	// becomes 200. Size is set outright because the theme's ladder
 	// tops out well below what a hero number wants.
-	style := theme.M1
+	style := theme.Mono(theme.TextStyleDisplay.Roman())
 	style.Size = statValueSize
 	style.Color = accent
 	// The glyphs fade from a lit tint at the top to the flat series
