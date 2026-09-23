@@ -447,7 +447,7 @@ func statText(label, value, unit string, accent gui.Color) gui.View {
 	// same width, so a live reading does not shuffle sideways as 199
 	// becomes 200. Size is set outright because the theme's ladder
 	// tops out well below what a hero number wants.
-	style := theme.Mono(theme.TextStyleDisplay.Roman())
+	style := theme.Mono(theme.TextStyleDisplay.Regular())
 	style.Size = statValueSize
 	style.Color = accent
 	// The glyphs fade from a lit tint at the top to the flat series
