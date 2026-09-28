@@ -550,7 +550,7 @@ func TestPumpIgnoresAStoppedRun(t *testing.T) {
 // wheel wherever the pointer went. The map is not focusable, so a click
 // leaves focus alone and the wheel keeps following the pointer.
 func TestMapIsNotFocusable(t *testing.T) {
-	w := gui.NewTestWindow(gui.WindowCfg{
+	w := gui.NewTestWindow(t, gui.WindowCfg{
 		State:  New(true, time.Minute, nil),
 		Width:  1180,
 		Height: 780,

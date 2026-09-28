@@ -224,7 +224,7 @@ func providerPicker(s *State) gui.View {
 	content := []gui.View{
 		gui.Combobox(gui.ComboboxCfg{
 			ID:       "provider",
-			Options:  names,
+			Items:    names,
 			Value:    s.Provider().Name,
 			MinWidth: pickerWidth,
 			MaxWidth: pickerWidth,
@@ -260,7 +260,7 @@ func providerPicker(s *State) gui.View {
 		}
 		content = append(content, gui.Combobox(gui.ComboboxCfg{
 			ID:       "server",
-			Options:  names,
+			Items:    names,
 			Value:    s.Server().Name,
 			MinWidth: serverWidth,
 			MaxWidth: serverWidth,
