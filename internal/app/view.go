@@ -131,14 +131,14 @@ func headerView(s *State) gui.View {
 			},
 		},
 		Padding:    gui.NewPadding(10, 16, 10, 16),
-		Spacing:    gui.SomeF(12),
+		Spacing:    gui.SpacingMedium,
 		VAlign:     gui.VAlignMiddle,
 		SizeBorder: gui.NoBorder,
 		Content: []gui.View{
 			gui.Row(gui.ContainerCfg{
 				Sizing:     gui.FillFit,
 				Padding:    gui.NoPadding,
-				Spacing:    gui.SomeF(12),
+				Spacing:    gui.SpacingMedium,
 				VAlign:     gui.VAlignMiddle,
 				SizeBorder: gui.NoBorder,
 				Content:    left,
@@ -151,7 +151,7 @@ func headerView(s *State) gui.View {
 	return gui.Column(gui.ContainerCfg{
 		Sizing:     gui.FillFit,
 		Padding:    gui.NoPadding,
-		Spacing:    gui.SomeF(0),
+		Spacing:    gui.NoSpacing,
 		SizeBorder: gui.NoBorder,
 		Content:    []gui.View{bar, headerRule()},
 	})
@@ -301,7 +301,7 @@ func providerPicker(s *State) gui.View {
 	return gui.Row(gui.ContainerCfg{
 		Sizing:     gui.FitFit,
 		Padding:    gui.NoPadding,
-		Spacing:    gui.SomeF(8),
+		Spacing:    gui.SpacingSmall,
 		VAlign:     gui.VAlignMiddle,
 		SizeBorder: gui.NoBorder,
 		Content:    content,
@@ -384,7 +384,7 @@ func heroRow(s *State) gui.View {
 		Sizing:     gui.FillFixed,
 		Height:     heroRowHeight,
 		Padding:    gui.NewPadding(10, 12, 8, 12),
-		Spacing:    gui.SomeF(10),
+		Spacing:    gui.SpacingSmall,
 		SizeBorder: gui.NoBorder,
 		Content: []gui.View{
 			gaugePanel(s),
@@ -415,7 +415,7 @@ func statsPanel(s *State) gui.View {
 		// reading, which leaves the slack in the row for the dial.
 		Sizing:     gui.FitFill,
 		Padding:    gui.NewPadding(4, 8, 4, 8),
-		Spacing:    gui.SomeF(10),
+		Spacing:    gui.SpacingSmall,
 		VAlign:     gui.VAlignMiddle,
 		SizeBorder: gui.NoBorder,
 		Content: []gui.View{
@@ -482,7 +482,7 @@ func statText(label, value, unit string, accent gui.Color) gui.View {
 	return gui.Row(gui.ContainerCfg{
 		Sizing:     gui.FitFit,
 		Padding:    gui.NoPadding,
-		Spacing:    gui.SomeF(10),
+		Spacing:    gui.SpacingSmall,
 		VAlign:     gui.VAlignMiddle,
 		SizeBorder: gui.NoBorder,
 		Content: []gui.View{
@@ -507,13 +507,13 @@ func statText(label, value, unit string, accent gui.Color) gui.View {
 			gui.Column(gui.ContainerCfg{
 				Sizing:     gui.FitFit,
 				Padding:    gui.NoPadding,
-				Spacing:    gui.SomeF(0),
+				Spacing:    gui.NoSpacing,
 				SizeBorder: gui.NoBorder,
 				Content: []gui.View{
 					gui.Row(gui.ContainerCfg{
 						Sizing:     gui.FitFit,
 						Padding:    gui.NoPadding,
-						Spacing:    gui.SomeF(6),
+						Spacing:    gui.SpacingSmall,
 						VAlign:     gui.VAlignBottom,
 						SizeBorder: gui.NoBorder,
 						Content:    head,
@@ -560,7 +560,7 @@ func secondRow(s *State) gui.View {
 		Sizing:     gui.FillFill,
 		MinHeight:  secondRowMin,
 		Padding:    gui.NewPadding(0, 12, 12, 12),
-		Spacing:    gui.SomeF(10),
+		Spacing:    gui.SpacingSmall,
 		SizeBorder: gui.NoBorder,
 		Content: []gui.View{
 			livePanel(s),
@@ -584,7 +584,7 @@ func panel(title string, accent gui.Color, body gui.View) gui.View {
 	cfg := cardChrome()
 	cfg.Sizing = gui.FillFill
 	cfg.Padding = gui.NewPadding(8, 10, 8, 10)
-	cfg.Spacing = gui.SomeF(4)
+	cfg.Spacing = gui.SpacingTight
 	cfg.Content = []gui.View{panelTitle(title, accent), body}
 	return gui.Column(cfg)
 }
@@ -602,7 +602,7 @@ func busyPlaceholder(text string, kind gui.SvgSpinnerKind, accent gui.Color) gui
 	return gui.Column(gui.ContainerCfg{
 		Sizing:     gui.FillFill,
 		Padding:    gui.NoPadding,
-		Spacing:    gui.SomeF(10),
+		Spacing:    gui.SpacingSmall,
 		HAlign:     gui.HAlignCenter,
 		VAlign:     gui.VAlignMiddle,
 		SizeBorder: gui.NoBorder,

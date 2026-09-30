@@ -50,7 +50,7 @@ func mapPanel(s *State) gui.View {
 	cfg.Sizing = gui.FixedFill
 	cfg.Width = mapPanelWidth
 	cfg.Padding = gui.NewPadding(8, 10, 8, 10)
-	cfg.Spacing = gui.SomeF(4)
+	cfg.Spacing = gui.SpacingTight
 	cfg.Content = []gui.View{
 		panelTitleID(mapTitle(s), colorUp, mapTitleID),
 		mapHoverRing(s),
@@ -97,11 +97,11 @@ func mapHoverRing(s *State) gui.View {
 	return gui.Column(gui.ContainerCfg{
 		Sizing:     gui.FillFill,
 		Padding:    gui.NoPadding,
-		SizeBorder: gui.SomeF(mapRingWidth),
+		SizeBorder: gui.BorderPx(mapRingWidth),
 		// At rest the ring is the card's own color, so the map looks
 		// exactly as it did before the pointer arrived.
 		ColorBorder: theme.ColorPanel,
-		Radius:      gui.SomeF(theme.RadiusSmall),
+		Radius:      gui.RadiusSmall,
 		// OnHover runs inside the layout pass and paints into this
 		// frame; nothing fires once the pointer leaves, and neither
 		// shape is touched by a frame that lights nothing, so both
