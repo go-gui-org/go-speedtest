@@ -60,7 +60,7 @@ func cardChrome() gui.ContainerCfg {
 	top := lighten(theme.ColorPanel, cardLift)
 	return gui.ContainerCfg{
 		Color:  theme.ColorPanel,
-		Radius: gui.SomeF(theme.RadiusMedium),
+		Radius: gui.RadiusMedium,
 		Gradient: &gui.GradientDef{
 			Type:      gui.GradientLinear,
 			Direction: gui.GradientToBottom,
@@ -103,7 +103,7 @@ func panelTitleID(title string, accent gui.Color, id string) gui.View {
 	return gui.Row(gui.ContainerCfg{
 		Sizing:     gui.FillFit,
 		Padding:    gui.NoPadding,
-		Spacing:    gui.SomeF(7),
+		Spacing:    gui.SpacingSmall,
 		VAlign:     gui.VAlignMiddle,
 		SizeBorder: gui.NoBorder,
 		Content: []gui.View{

@@ -44,7 +44,7 @@ func livePanel(s *State) gui.View {
 	return gui.Column(gui.ContainerCfg{
 		Sizing:     gui.FillFill,
 		Padding:    gui.NoPadding,
-		Spacing:    gui.SomeF(10),
+		Spacing:    gui.SpacingSmall,
 		SizeBorder: gui.NoBorder,
 		Content: []gui.View{
 			directionPanel("Download", "chart:live:down", down, colorDown),
@@ -279,7 +279,7 @@ func gaugePanel(s *State) gui.View {
 	cfg.Sizing = gui.FixedFill
 	cfg.Width = gaugeWidth
 	cfg.Padding = gui.NewPadding(8, 10, 8, 10)
-	cfg.Spacing = gui.SomeF(4)
+	cfg.Spacing = gui.SpacingTight
 	cfg.Content = []gui.View{
 		panelTitle(gaugeTitle(s, unit), accent),
 		chart.Gauge(chart.GaugeCfg{
@@ -641,7 +641,7 @@ func connPanel(s *State) gui.View {
 	cfg.Sizing = gui.FixedFill
 	cfg.Width = connPanelWidth
 	cfg.Padding = gui.NewPadding(8, 10, 8, 10)
-	cfg.Spacing = gui.SomeF(10)
+	cfg.Spacing = gui.SpacingSmall
 	cfg.Content = append(
 		[]gui.View{panelTitle("Connection", colorDown)}, rows...)
 	return gui.Column(cfg)
@@ -664,14 +664,14 @@ func connRow(icon, label, value string, accent gui.Color) gui.View {
 	return gui.Row(gui.ContainerCfg{
 		Sizing:     gui.FillFit,
 		Padding:    gui.NoPadding,
-		Spacing:    gui.SomeF(8),
+		Spacing:    gui.SpacingSmall,
 		SizeBorder: gui.NoBorder,
 		Content: []gui.View{
 			gui.Text(gui.TextCfg{Text: icon, TextStyle: iconStyle}),
 			gui.Column(gui.ContainerCfg{
 				Sizing:     gui.FillFit,
 				Padding:    gui.NoPadding,
-				Spacing:    gui.SomeF(1),
+				Spacing:    gui.SpacingTight,
 				SizeBorder: gui.NoBorder,
 				Content: []gui.View{
 					gui.Text(gui.TextCfg{
