@@ -58,9 +58,7 @@ jobs:
       - name: Vet
         run: go vet ./...
 
-      - uses: golangci/golangci-lint-action@v9
-        with:
-          # Matches the pin in go-charts, go-glyph and go-term, so a local
-          # lint pass and a CI lint pass mean the same thing.
-          version: v2.12.2
-          args: ./...
+      # Builds the linter pinned in tools/lint/go.mod, the same binary
+      # `make lint` runs locally. Matches go-gui and the other siblings.
+      - name: Lint
+        run: make lint
