@@ -176,7 +176,7 @@ result the engine tests run against an `httptest` server in milliseconds.
 ```
 go test ./internal/...          # unit tests
 go test -race ./internal/...    # the event pump is concurrent
-golangci-lint run ./...         # lint
+make lint                       # lint (pinned in tools/lint)
 ```
 
 Set `GOGUI_DEBUG=1` when you run the app. The go-gui debug gate walks the view

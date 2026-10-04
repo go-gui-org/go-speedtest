@@ -41,7 +41,7 @@ RELGO := GOWORK=off go
 # cgo, which is also why macOS cannot be cross-compiled from Linux.
 CROSSENV := CGO_ENABLED=0
 
-.PHONY: all build run test test-race vet lint clean \
+.PHONY: all build run test test-race vet lint lint-bin clean \
 	build-linux build-windows build-macos \
 	package-linux package-windows package-macos release
 
@@ -67,10 +67,28 @@ test-race:
 vet:
 	$(RELGO) vet ./...
 
-# Matches the pin in .github/workflows/ci.yml, so a local pass and a CI
-# pass mean the same thing.
-lint:
-	golangci-lint run ./...
+# Repo-local bin for the pinned linter. The pinned VERSION itself lives in
+# tools/lint/go.mod. `make lint` and CI both build from that file, so a
+# local pass and a CI pass run one version.
+LINT_DIR := $(CURDIR)/.bin
+LINT_BIN := $(LINT_DIR)/golangci-lint
+
+# Build the pinned golangci-lint into .bin/. It rebuilds only when
+# tools/lint/go.mod or go.sum change. GOWORK=off keeps a local go.work out
+# of the build. GOOS/GOARCH/CGO_ENABLED are cleared so a caller that sets
+# them to pick a lint target does not cross-compile the linter itself into
+# a binary this host cannot run.
+$(LINT_BIN): tools/lint/go.mod tools/lint/go.sum
+	GOWORK=off GOOS= GOARCH= CGO_ENABLED=0 GOFLAGS= GOBIN=$(LINT_DIR) \
+	  go -C tools/lint install \
+	  github.com/golangci/golangci-lint/v2/cmd/golangci-lint
+
+lint-bin: $(LINT_BIN)
+
+# GOWORK=off for the same reason as RELGO: CI has no sibling checkouts, so
+# a lint pass through a local go.work would answer a different question.
+lint: $(LINT_BIN)
+	GOWORK=off $(LINT_BIN) run ./...
 
 # ------------------------------------------------------- release builds
 
