@@ -3,10 +3,10 @@ module github.com/go-gui-org/go-speedtest
 go 1.26.4
 
 require (
-	github.com/go-gui-org/go-charts v0.30.0
-	github.com/go-gui-org/go-glyph v1.26.4
-	github.com/go-gui-org/go-gui v0.94.0
-	github.com/go-gui-org/go-map v0.28.0
+	github.com/go-gui-org/go-charts v0.31.0
+	github.com/go-gui-org/go-glyph v1.26.5
+	github.com/go-gui-org/go-gui v0.96.0
+	github.com/go-gui-org/go-map v0.29.0
 )
 
 require (
@@ -21,8 +21,8 @@ require (
 	github.com/tdewolff/parse/v2 v2.8.16 // indirect
 	github.com/yuin/goldmark v1.8.5 // indirect
 	github.com/yuin/goldmark-emoji v1.0.6 // indirect
-	golang.org/x/image v0.47.0 // indirect
-	golang.org/x/sync v0.24.0 // indirect
-	golang.org/x/sys v0.49.0 // indirect
-	golang.org/x/text v0.43.0 // indirect
+	golang.org/x/image v0.48.0 // indirect
+	golang.org/x/sync v0.25.0 // indirect
+	golang.org/x/sys v0.50.0 // indirect
+	golang.org/x/text v0.44.0 // indirect
 )
